@@ -53,6 +53,63 @@
  *
  */
 
+/*
+ * lwip 动态内存分配一共有三种方式，分别如下：
+ * 第一种方式是使用标准 libc 提供的动态内存分配接口，使用这种方式需要定义 MEM_LIBC_MALLOC 宏编译选项
+ * 
+ * 第二种方式是使用 lwip 实现的动态内存池分配算法，这种分配算法会预先定义一些固定大小的内存单元对象
+ * 在分配内存单元的时候，会从这些内存对象中申请一个合适单元，具体实现见 memp.c 文件。这样做的好处是
+ * 可以提高内存分配效率并减少内存碎片，缺点是会浪费一些内存，使用这种方式需要定义 MEM_USE_POOLS
+ * 宏编译选项
+ *
+ * 第三种方式是使用 lwip 实现的动态内存堆分配算法，这种分配算法会预先定义一个全局数组，这个数组空间就
+ * 是我们提供给用户申请的堆空间，其基本的组织结构如下：
+ *      ^  struct mem
+ *      |  ----------
+ *       --|  prev  | 
+ *         |  next  | ---
+ *         |  used  |   |
+ *         |        |   |
+ *         |        |   |
+ *      -> |---------   |
+ *      |               |
+ *      |  struct mem   |
+ *      |  ---------- <-|
+ *       --|  prev  | 
+ *         |  next  | ---
+ *         |  used  |   |
+ *         |        |   |
+ *         |        |   |
+ *      -> |---------   |
+ *      |               |
+ *      |  struct mem   |
+ *      |  ---------- <-|
+ *      -- |  prev  | 
+ *         |  next  | ---
+ *         |  used  |   |
+ *         |        |   |
+ *         |        |   |
+ *         |---------   |
+ *                      V
+ * 在 lwip 内存堆分配算法中，每个原始内存堆单元的组织结构大致如下：
+ * 
+ *         raw memory block
+ *    ------------------------
+ *    |    prev struct mem   | 
+ *    |    next struct mem   |
+ *    |    used       flag   |
+ *    |                      |
+ *    |  user mem block size |
+ *    |----------------------|   
+ *    |                      |   
+ *    |   MEM_SANITY_OFFSET  |   
+ *    |                      |
+ *    |----------------------|
+ *    |                      |
+ *    |    user mem block    |
+ *    |                      |      
+ *    |-----------------------   
+ */
 #include "lwip/opt.h"
 #include "lwip/mem.h"
 #include "lwip/def.h"
@@ -93,6 +150,21 @@
  * @param descr1 description of the element source shown on error
  * @param descr2 description of the element source shown on error
  */
+/*********************************************************************************************************
+** 函数名称: mem_overflow_check_raw
+** 功能描述: 检查指定的内存单元是否发生过越界访问
+** 注     释: 如果 MEM_OVERFLOW_CHECK or MEMP_OVERFLOW_CHECK 功能打开，那么在分配内存的时候会在每一个
+**         : 分配的内存单元前和后预留部分空间并初始化为 0xcd，这样在发生内存访问溢出的时候就会把这些
+**         : 预留的 0xcd 内容修改成其他值，所有我们可以通过检查分配的内存单元前后预留空间的内容是否被
+**         : 修改来判断是否发生内存访问越界现象
+** 输	 入: p - 要检查的内存单元起始地址
+**         : size - 要检查的内存单元空间大小
+**         : descr1 - 在发生越界访问时，需要打印的标志信息
+**         : descr2 - 在发生越界访问时，需要打印的标志信息
+** 输     出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 mem_overflow_check_raw(void *p, size_t size, const char *descr1, const char *descr2)
 {
@@ -102,6 +174,8 @@ mem_overflow_check_raw(void *p, size_t size, const char *descr1, const char *des
 
 #if MEM_SANITY_REGION_AFTER_ALIGNED > 0
   m = (u8_t *)p + size;
+
+  /* 分别校验每一个字节是否被意外修改，如果被修改，则表示发生内存溢出 */
   for (k = 0; k < MEM_SANITY_REGION_AFTER_ALIGNED; k++) {
     if (m[k] != 0xcd) {
       char errstr[128];
@@ -113,6 +187,8 @@ mem_overflow_check_raw(void *p, size_t size, const char *descr1, const char *des
 
 #if MEM_SANITY_REGION_BEFORE_ALIGNED > 0
   m = (u8_t *)p - MEM_SANITY_REGION_BEFORE_ALIGNED;
+
+  /* 分别校验每一个字节是否被意外修改，如果被修改，则表示发生内存溢出 */
   for (k = 0; k < MEM_SANITY_REGION_BEFORE_ALIGNED; k++) {
     if (m[k] != 0xcd) {
       char errstr[128];
@@ -131,6 +207,19 @@ mem_overflow_check_raw(void *p, size_t size, const char *descr1, const char *des
 /**
  * Initialize the restricted area of a mem element.
  */
+/*********************************************************************************************************
+** 函数名称: mem_overflow_init_raw
+** 功能描述: 初始化内存单元前后的越界访问区内容
+** 注	 释: 如果 MEM_OVERFLOW_CHECK or MEMP_OVERFLOW_CHECK 功能打开，那么在分配内存的时候会在每一个
+**		   : 分配的内存单元前和后预留部分空间并初始化为 0xcd，这样在发生内存访问溢出的时候就会把这些
+**		   : 预留的 0xcd 内容修改成其他值，所有我们可以通过检查分配的内存单元前后预留空间的内容是否被
+**		   : 修改来判断是否发生内存访问越界现象
+** 输	 入: p - 要检查的内存单元起始地址
+**		   : size - 要检查的内存单元空间大小
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 mem_overflow_init_raw(void *p, size_t size)
 {
@@ -203,6 +292,16 @@ mem_trim(void *mem, mem_size_t size)
  *
  * Note that the returned value must always be aligned (as defined by MEM_ALIGNMENT).
  */
+/*********************************************************************************************************
+** 函数名称: mem_malloc
+** 功能描述: 申请一个指定大小的内存单元
+** 注	 释: 如果定义了 LWIP_STATS && MEM_STATS，则会在每个内存单元起始地址“前”预留出空间存储
+**         : 当前内存单元的大小
+** 输	 入: size - 要申请的内存单元空间大小
+** 输	 出: ret - 申请到的、可存储用户数据的内存单元起始地址
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void *
 mem_malloc(mem_size_t size)
 {
@@ -212,6 +311,7 @@ mem_malloc(mem_size_t size)
   } else {
     LWIP_ASSERT("malloc() must return aligned memory", LWIP_MEM_ALIGN(ret) == ret);
 #if LWIP_STATS && MEM_STATS
+	/* 在每个内存单元起始地址“前”预留出空间存储当前内存单元的大小 */
     *(mem_size_t *)ret = size;
     ret = (u8_t *)ret + MEM_LIBC_STATSHELPER_SIZE;
     MEM_STATS_INC_USED_LOCKED(used, size);
@@ -224,12 +324,23 @@ mem_malloc(mem_size_t size)
  *
  * @param rmem is the pointer as returned by a previous call to mem_malloc()
  */
+/*********************************************************************************************************
+** 函数名称: mem_free
+** 功能描述: 释放一个指定大小的内存单元
+** 注	 释: 如果定义了 LWIP_STATS && MEM_STATS，则会在每个内存单元起始地址“前”预留出空间存储
+**		   : 当前内存单元的大小
+** 输	 入: rmem - 要释放的内存单元起始地址
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 mem_free(void *rmem)
 {
   LWIP_ASSERT("rmem != NULL", (rmem != NULL));
   LWIP_ASSERT("rmem == MEM_ALIGN(rmem)", (rmem == LWIP_MEM_ALIGN(rmem)));
 #if LWIP_STATS && MEM_STATS
+  /* 需要把每个内存单元起始地址“前”预留出存储当前内存单元的大小的变量空间也回收 */
   rmem = (u8_t *)rmem - MEM_LIBC_STATSHELPER_SIZE;
   MEM_STATS_DEC_USED_LOCKED(used, *(mem_size_t *)rmem);
 #endif
@@ -247,6 +358,15 @@ mem_free(void *rmem)
  * @param size the size in bytes of the memory needed
  * @return a pointer to the allocated memory or NULL if the pool is empty
  */
+/*********************************************************************************************************
+** 函数名称: mem_malloc
+** 功能描述: 从 lwip 内存池中申请指定字节数的用户内存单元
+** 输	 入: size - 需要申请的用户内存单元字节数
+** 输	 出: ret - 申请到的用户内存单元起始地址
+**         : NULL - 申请失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void *
 mem_malloc(mem_size_t size)
 {
@@ -255,6 +375,7 @@ mem_malloc(mem_size_t size)
   memp_t poolnr;
   mem_size_t required_size = size + LWIP_MEM_ALIGN_SIZE(sizeof(struct memp_malloc_helper));
 
+  /* 从内存池的第一个对象开始依次向后遍历，查找满足当前分配需求的内存池单元，找到之后立即返回 */
   for (poolnr = MEMP_POOL_FIRST; poolnr <= MEMP_POOL_LAST; poolnr = (memp_t)(poolnr + 1)) {
     /* is this pool big enough to hold an element of the required size
        plus a struct memp_malloc_helper that saves the pool this element came from? */
@@ -304,6 +425,14 @@ mem_malloc(mem_size_t size)
  *
  * @param rmem the memory element to free
  */
+/*********************************************************************************************************
+** 函数名称: mem_free
+** 功能描述: 释放从 lwip 内存池中申请的用户内存单元
+** 输	 入: rmem - 需要释放的用户内存单元起始地址
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 mem_free(void *rmem)
 {
@@ -322,6 +451,7 @@ mem_free(void *rmem)
 
   MEM_STATS_DEC_USED_LOCKED(used, hmem->size);
 #if MEMP_OVERFLOW_CHECK
+  /* 如果开启 memp 内存访问越界检查功能，则校验安全区数据是否被修改来判断是否发生过越界访问 */
   {
     u16_t i;
     LWIP_ASSERT("MEM_USE_POOLS: invalid chunk size",
@@ -362,12 +492,17 @@ struct mem {
 /** All allocated blocks will be MIN_SIZE bytes big, at least!
  * MIN_SIZE can be overridden to suit your needs. Smaller values save space,
  * larger values could prevent too small blocks to fragment the RAM too much. */
+/* lwip 内存堆算法允许分配的最小内存单元字节数 */
 #ifndef MIN_SIZE
 #define MIN_SIZE             12
 #endif /* MIN_SIZE */
 /* some alignment macros: we define them here for better source code layout */
 #define MIN_SIZE_ALIGNED     LWIP_MEM_ALIGN_SIZE(MIN_SIZE)
+
+/* 计算 struct mem 结构体按照默认对齐字节数对齐时需要占用的内存空间 */
 #define SIZEOF_STRUCT_MEM    LWIP_MEM_ALIGN_SIZE(sizeof(struct mem))
+
+/* 定义协议栈 ram_heap（内存堆）占用的空间大小 */
 #define MEM_SIZE_ALIGNED     LWIP_MEM_ALIGN_SIZE(MEM_SIZE)
 
 /** If you want to relocate the heap to external memory, simply define
@@ -376,13 +511,21 @@ struct mem {
  * how that space is calculated). */
 #ifndef LWIP_RAM_HEAP_POINTER
 /** the heap. we need one struct mem at the end and some room for alignment */
+/* 
+ * 通过声明全局变量的方式为 lwip 动态内存管理单元分配指定大小的内存
+ * 在 lwip 内存堆中每一个内存块都有一个对应的 struct mem 结构体，所以最少预分配两个 struct mem
+ * 空间，一个代表整个空间中的第一个内存块，另一个代表整个空间的最后一个内存块（这个是为了表示内
+ * 存堆空间结尾边界，不会向外分配），MEM_SIZE_ALIGNED 表示的是我们可以向用户分配的内存堆空间大小
+ */
 LWIP_DECLARE_MEMORY_ALIGNED(ram_heap, MEM_SIZE_ALIGNED + (2U * SIZEOF_STRUCT_MEM));
 #define LWIP_RAM_HEAP_POINTER ram_heap
 #endif /* LWIP_RAM_HEAP_POINTER */
 
 /** pointer to the heap (ram_heap): for alignment, ram is now a pointer instead of an array */
 static u8_t *ram;
+
 /** the last entry, always unused! */
+/* 内存堆空间结尾边界，不会向外分配 */
 static struct mem *ram_end;
 
 /** concurrent access protection */
@@ -428,6 +571,15 @@ static void mem_sanity(void);
 #endif
 
 #if MEM_OVERFLOW_CHECK
+/*********************************************************************************************************
+** 函数名称: mem_overflow_init_element
+** 功能描述: 初始化指定的原始内存单元越界访问安全区数据
+** 输	 入: mem - 内存单元的原始起始地址
+**         : user_size - 用户申请到有效空间大小
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void
 mem_overflow_init_element(struct mem *mem, mem_size_t user_size)
 {
@@ -436,6 +588,14 @@ mem_overflow_init_element(struct mem *mem, mem_size_t user_size)
   mem_overflow_init_raw(p, user_size);
 }
 
+/*********************************************************************************************************
+** 函数名称: mem_overflow_check_element
+** 功能描述: 校验指定的原始内存单元是否发生过越界访问
+** 输	 入: mem - 内存单元的原始起始地址
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void
 mem_overflow_check_element(struct mem *mem)
 {
@@ -447,12 +607,28 @@ mem_overflow_check_element(struct mem *mem)
 #define mem_overflow_check_element(mem)
 #endif /* MEM_OVERFLOW_CHECK */
 
+/*********************************************************************************************************
+** 函数名称: ptr_to_mem
+** 功能描述: 把 ram 的数组成员索引值转换成对应的 struct mem 类型结构体指针
+** 输	 入: ptr - ram 数组成员索引值
+** 输	 出: struct mem - 与 ptr 对应的 struct mem 类型结构体指针
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static struct mem *
 ptr_to_mem(mem_size_t ptr)
 {
   return (struct mem *)(void *)&ram[ptr];
 }
 
+/*********************************************************************************************************
+** 函数名称: mem_to_ptr
+** 功能描述: 把 ram 中的指定内存单元地址转换成与其对应的数组成员索引值
+** 输	 入: mem - ram 中的内存单元地址
+** 输	 出: mem_size_t - 数组成员索引值
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static mem_size_t
 mem_to_ptr(void *mem)
 {
@@ -470,6 +646,15 @@ mem_to_ptr(void *mem)
  * This assumes access to the heap is protected by the calling function
  * already.
  */
+/*********************************************************************************************************
+** 函数名称: plug_holes
+** 功能描述: 在释放内存堆原始内存单元时，判断指定的原始内存单元是否可以和临近的（前向和后向）、空闲的原始
+**         : 内存单元合并成一个大的、连续的原始内存单元块，如果可以则合并并更新相关 struct mem 管理数据内容
+** 输	 入: mem - 释放的原始内存单元
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void
 plug_holes(struct mem *mem)
 {
@@ -512,6 +697,14 @@ plug_holes(struct mem *mem)
 /**
  * Zero the heap and initialize start, end and lowest-free
  */
+/*********************************************************************************************************
+** 函数名称: mem_init
+** 功能描述: 初始化 lwip 动态内存管理功能模块
+** 输	 入: 
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 mem_init(void)
 {
@@ -522,11 +715,13 @@ mem_init(void)
 
   /* align the heap */
   ram = (u8_t *)LWIP_MEM_ALIGN(LWIP_RAM_HEAP_POINTER);
+  
   /* initialize the start of the heap */
   mem = (struct mem *)(void *)ram;
   mem->next = MEM_SIZE_ALIGNED;
   mem->prev = 0;
   mem->used = 0;
+  
   /* initialize the end of the heap */
   ram_end = ptr_to_mem(MEM_SIZE_ALIGNED);
   ram_end->used = 1;
@@ -547,6 +742,15 @@ mem_init(void)
 /* Check if a struct mem is correctly linked.
  * If not, double-free is a possible reason.
  */
+/*********************************************************************************************************
+** 函数名称: mem_link_valid
+** 功能描述: 校验指定的原始内存单元管理结构链接指针是否有效
+** 输	 入: mem - 需要校验的原始内存单元
+** 输	 出: 1 - 有效的内存单元
+**         : 0 - 无效的内存单元
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static int
 mem_link_valid(struct mem *mem)
 {
@@ -564,6 +768,14 @@ mem_link_valid(struct mem *mem)
 }
 
 #if MEM_SANITY_CHECK
+/*********************************************************************************************************
+** 函数名称: mem_sanity
+** 功能描述: 检验当前 lwip 动态管理内存堆模块状态是否合法，所有相关参数是否正常，如果不正常则打印错误信息
+** 输	 入: 
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void
 mem_sanity(void)
 {
@@ -613,6 +825,15 @@ mem_sanity(void)
  * @param rmem is the data portion of a struct mem as returned by a previous
  *             call to mem_malloc()
  */
+/*********************************************************************************************************
+** 函数名称: mem_free
+** 功能描述: 释放指定的原始内存单元
+** 注     释: 在释放原始内存单元之前会做一系列参数校验，判断是否有异常
+** 输	 入: rmem - 要释放的原始内存单元指针
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 mem_free(void *rmem)
 {
@@ -623,6 +844,8 @@ mem_free(void *rmem)
     LWIP_DEBUGF(MEM_DEBUG | LWIP_DBG_TRACE | LWIP_DBG_LEVEL_SERIOUS, ("mem_free(p == NULL) was called.\n"));
     return;
   }
+
+  /* 检查要释放的内存单元起始地址是否正确对齐 */
   if ((((mem_ptr_t)rmem) & (MEM_ALIGNMENT - 1)) != 0) {
     LWIP_MEM_ILLEGAL_FREE("mem_free: sanity check alignment");
     LWIP_DEBUGF(MEM_DEBUG | LWIP_DBG_LEVEL_SEVERE, ("mem_free: sanity check alignment\n"));
@@ -633,8 +856,10 @@ mem_free(void *rmem)
 
   /* Get the corresponding struct mem: */
   /* cast through void* to get rid of alignment warnings */
+  /* 获取要释放的内存单元的原始起始地址 */
   mem = (struct mem *)(void *)((u8_t *)rmem - (SIZEOF_STRUCT_MEM + MEM_SANITY_OFFSET));
 
+  /* 校验内存单元原始起始地址是否越界 */
   if ((u8_t *)mem < ram || (u8_t *)rmem + MIN_SIZE_ALIGNED > (u8_t *)ram_end) {
     LWIP_MEM_ILLEGAL_FREE("mem_free: illegal memory");
     LWIP_DEBUGF(MEM_DEBUG | LWIP_DBG_LEVEL_SEVERE, ("mem_free: illegal memory\n"));
@@ -642,12 +867,17 @@ mem_free(void *rmem)
     MEM_STATS_INC_LOCKED(illegal);
     return;
   }
+  
 #if MEM_OVERFLOW_CHECK
+  /* 在释放内存的时候检查是否发生过内存访问越界 */
   mem_overflow_check_element(mem);
 #endif
+
   /* protect the heap from concurrent access */
   LWIP_MEM_FREE_PROTECT();
+
   /* mem has to be in a used state */
+  /* 检查要释放的原始内存单元使用状态标志是否正确 */
   if (!mem->used) {
     LWIP_MEM_ILLEGAL_FREE("mem_free: illegal memory: double free");
     LWIP_MEM_FREE_UNPROTECT();
@@ -657,6 +887,7 @@ mem_free(void *rmem)
     return;
   }
 
+  /* 校验原始内存单元管理结构链接指针是否有效 */
   if (!mem_link_valid(mem)) {
     LWIP_MEM_ILLEGAL_FREE("mem_free: illegal memory: non-linked: double free");
     LWIP_MEM_FREE_UNPROTECT();
@@ -677,7 +908,9 @@ mem_free(void *rmem)
   MEM_STATS_DEC_USED(used, mem->next - (mem_size_t)(((u8_t *)mem - ram)));
 
   /* finally, see if prev or next are free also */
+  /* 判断我们当前释放的原始内存单元块是否可以和临近的空闲内存合并，如果可以则执行合并操作 */
   plug_holes(mem);
+  
   MEM_SANITY();
 #if LWIP_ALLOW_MEM_FREE_FROM_OTHER_CONTEXT
   mem_free_count = 1;
@@ -695,6 +928,16 @@ mem_free(void *rmem)
  *         or NULL if newsize is > old size, in which case rmem is NOT touched
  *         or freed!
  */
+/*********************************************************************************************************
+** 函数名称: mem_trim
+** 功能描述: 收缩指定的用户内存单元空间大小到我们指定的尺寸
+** 注	 释: 这个函数只支持对用户内存单元的收缩操作，不支持扩展操作
+** 输	 入: rmem - 由 mem_malloc 接口返回的用户内存单元地址
+**         : new_size - 收缩后的用户内存单元大小
+** 输	 出: rmem - 等于参数 rmem，即收缩后，用户内存单元起始地址不变
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void *
 mem_trim(void *rmem, mem_size_t new_size)
 {
@@ -827,6 +1070,17 @@ mem_trim(void *rmem, mem_size_t new_size)
  *
  * Note that the returned value will always be aligned (as defined by MEM_ALIGNMENT).
  */
+/*********************************************************************************************************
+** 函数名称: mem_malloc
+** 功能描述: 申请指定字节数的用户内存单元
+** 注	 释: 申请内存时会分配出一个原始内存单元，但是返回的是用户内存单元起始地址（我们可以通过用户内存
+**         : 单元起始地址计算出原始内存单元起始地址）
+** 输	 入: size_in - 用户需要申请的内存字节数
+** 输	 出: mem - 用户内存单元起始地址
+**         : NULL - 申请失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void *
 mem_malloc(mem_size_t size_in)
 {
@@ -843,14 +1097,22 @@ mem_malloc(mem_size_t size_in)
 
   /* Expand the size of the allocated memory region so that we can
      adjust for alignment. */
+  /* 把用户申请的内存单元字节数按照预设置的对齐字节数对齐 */
   size = (mem_size_t)LWIP_MEM_ALIGN_SIZE(size_in);
+
+  /* MIN_SIZE_ALIGNED 表示内存堆算法在分配内存时，允许的最小内存单元大小
+   * 所以如果我们分配的字节数小于这个值，则需要进行扩展 */
   if (size < MIN_SIZE_ALIGNED) {
     /* every data block must be at least MIN_SIZE_ALIGNED long */
     size = MIN_SIZE_ALIGNED;
   }
+
 #if MEM_OVERFLOW_CHECK
+  /* 如果开启了越界访问检查功能，则预留出内存安全区空间 */
   size += MEM_SANITY_REGION_BEFORE_ALIGNED + MEM_SANITY_REGION_AFTER_ALIGNED;
 #endif
+
+  /* 如果我们申请的内存单元空间大小超出当前内存堆空间大小，表示内存空间不足，直接返回 NULL */
   if ((size > MEM_SIZE_ALIGNED) || (size < size_in)) {
     return NULL;
   }
@@ -861,33 +1123,46 @@ mem_malloc(mem_size_t size_in)
 #if LWIP_ALLOW_MEM_FREE_FROM_OTHER_CONTEXT
   /* run as long as a mem_free disturbed mem_malloc or mem_trim */
   do {
+  	/* 扫描内存堆前，清空重新扫描内存堆标志变量值 */
     local_mem_free_count = 0;
 #endif /* LWIP_ALLOW_MEM_FREE_FROM_OTHER_CONTEXT */
 
     /* Scan through the heap searching for a free block that is big enough,
      * beginning with the lowest free block.
      */
+    /* 以 lfree 为起点，开始遍历每一个 struct mem，查找满足本次内存申请要求的内存单元块 */
     for (ptr = mem_to_ptr(lfree); ptr < MEM_SIZE_ALIGNED - size;
          ptr = ptr_to_mem(ptr)->next) {
+	  /* 设置当前遍历的 struct mem 结构指针 */
       mem = ptr_to_mem(ptr);
 #if LWIP_ALLOW_MEM_FREE_FROM_OTHER_CONTEXT
+	  /* 扫描内存堆前，清空重新扫描内存堆标志变量值 */
       mem_free_count = 0;
+
+      /* 释放 SYS_ARCH_UNPROTECT 锁，这样在其他上下文中的               mem_free or mem_trim 
+       * 函数接口就可以被执行，进而释放内存 */
       LWIP_MEM_ALLOC_UNPROTECT();
+	  
       /* allow mem_free or mem_trim to run */
       LWIP_MEM_ALLOC_PROTECT();
       if (mem_free_count != 0) {
         /* If mem_free or mem_trim have run, we have to restart since they
            could have altered our current struct mem. */
+        /* 如果在其他进程上下文中调用了 mem_free or mem_trim 接口，表示当前内存堆结构发生了变化
+		 * 所以我们需要重新扫描整个内存堆，重新执行内存分配代码逻辑 */
         local_mem_free_count = 1;
         break;
       }
 #endif /* LWIP_ALLOW_MEM_FREE_FROM_OTHER_CONTEXT */
 
+	  /* 判断当前 struct mem 和下一个 struct mem 之间的空闲内存块大小是否满足本次申请需求 */
       if ((!mem->used) &&
           (mem->next - (ptr + SIZEOF_STRUCT_MEM)) >= size) {
         /* mem is not used and at least perfect fit is possible:
          * mem->next - (ptr + SIZEOF_STRUCT_MEM) gives us the 'user data size' of mem */
 
+		/* 如果当前 struct mem 和下一个 struct mem 之间的空闲内存块大小不仅满足本次内存申请要求
+		 * 而且在本次申请之后剩余的空间还可以组成一个空闲 struct mem 内存单元，则分割内存块 */
         if (mem->next - (ptr + SIZEOF_STRUCT_MEM) >= (size + SIZEOF_STRUCT_MEM + MIN_SIZE_ALIGNED)) {
           /* (in addition to the above, we test if another struct mem (SIZEOF_STRUCT_MEM) containing
            * at least MIN_SIZE_ALIGNED of data also fits in the 'user data space' of 'mem')
@@ -901,11 +1176,15 @@ mem_malloc(mem_size_t size_in)
            */
           ptr2 = (mem_size_t)(ptr + SIZEOF_STRUCT_MEM + size);
           LWIP_ASSERT("invalid next ptr",ptr2 != MEM_SIZE_ALIGNED);
+		
           /* create mem2 struct */
+		  /* 在分割大内存块时，创建一个新的 struct mem 结构体来管理分割后的内存空间，并把分割后的
+		   * 内存块插入到链表中的对应位置（插到 mem and mem->next 之间） */
           mem2 = ptr_to_mem(ptr2);
           mem2->used = 0;
           mem2->next = mem->next;
           mem2->prev = ptr;
+		  
           /* and insert it between mem and mem->next */
           mem->next = ptr2;
           mem->used = 1;
@@ -922,17 +1201,22 @@ mem_malloc(mem_size_t size_in)
            * also can't move mem->next directly behind mem, since mem->next
            * will always be used at this point!
            */
+          /* 如果分配完本次需要的内存后，剩余空间不足以重新组成一个新的内存单元块，则不需要执行分割操作 */
           mem->used = 1;
           MEM_STATS_INC_USED(used, mem->next - mem_to_ptr(mem));
         }
 #if LWIP_ALLOW_MEM_FREE_FROM_OTHER_CONTEXT
 mem_malloc_adjust_lfree:
-#endif /* LWIP_ALLOW_MEM_FREE_FROM_OTHER_CONTEXT */
+#endif  /* LWIP_ALLOW_MEM_FREE_FROM_OTHER_CONTEXT */
+		/* 在成功分配内存之后，调整当前的 lfree 指针位置 */
         if (mem == lfree) {
           struct mem *cur = lfree;
           /* Find next free block after mem and update lowest free pointer */
+		  /* 如果分配出去的内存块处于 lfree 位置，则需要从 lfree 开始遍历，查找一个合法的、空闲的
+		   * 内存块，然后调整 lfree 到新找到的位置处 */
           while (cur->used && cur != ram_end) {
 #if LWIP_ALLOW_MEM_FREE_FROM_OTHER_CONTEXT
+			/* 处理在其他上下文中释放内存的场景 */
             mem_free_count = 0;
             LWIP_MEM_ALLOC_UNPROTECT();
             /* prevent high interrupt latency... */
@@ -960,7 +1244,10 @@ mem_malloc_adjust_lfree:
 #if MEM_OVERFLOW_CHECK
         mem_overflow_init_element(mem, size_in);
 #endif
+        /* 在遍历 struct mem 链表结构每个节点时，都判断当前内存堆相关结构及参数是否合法 */
         MEM_SANITY();
+
+		/* 返回分配到的用户内存单元起始地址 */
         return (u8_t *)mem + SIZEOF_STRUCT_MEM + MEM_SANITY_OFFSET;
       }
     }
@@ -995,6 +1282,16 @@ mem_calloc(mem_size_t count, mem_size_t size)
  * @param size size of the objects to allocate
  * @return pointer to allocated memory / NULL pointer if there is an error
  */
+/*********************************************************************************************************
+** 函数名称: mem_calloc
+** 功能描述: 申请指定对象个数及指定对象大小的内存空间
+** 输	 入: count - 申请的对象个数
+**         : size - 每个对象大小字节数
+** 输	 出: p - 申请到的内存空间起始地址
+**		   : NULL - 申请失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void *
 mem_calloc(mem_size_t count, mem_size_t size)
 {

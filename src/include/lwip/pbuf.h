@@ -74,8 +74,13 @@ extern "C" {
 
 /* @todo: We need a mechanism to prevent wasting memory in every pbuf
    (TCP vs. UDP, IPv4 vs. IPv6: UDP/IPv4 packets may waste up to 28 bytes) */
-
+/* 传输层协议头字节数 */
 #define PBUF_TRANSPORT_HLEN 20
+
+/* IP 层协议头字节数(IPv6 协议报头长度固定为 40 字节，而 IPv4 协议报头长度在 20 字节
+ * 到 60 字节之间，其中前面 20 字节数据为固定必须字段，后面的 40 字节是可选 IP Options
+ * 字段，因为在实际使用中 IP Options 字段应用场景很少，所以 LWIP 在实现 IPv4 时默认不
+ * 支持 IP Options 选项字段，所以 IPv4 报头长度默认为 20 字节 */
 #if LWIP_IPV6
 #define PBUF_IP_HLEN        40
 #else
@@ -86,6 +91,9 @@ extern "C" {
  * @ingroup pbuf
  * Enumeration of pbuf layers
  */
+/* 这个枚举变量定义了 TCP/IP 协议栈不同层需要的报头长度，因为 LWIP 协议栈在不同层
+ * 之间使用 pbuf 传输数据，所以为了能够在指定的 pbuf 中找到当前协议层有效负载数据
+ * 的起始地址，只需要以 pbuf 缓冲区起始地址为起点，加上当前协议层报头长度即可 */
 typedef enum {
   /** Includes spare room for transport layer header, e.g. UDP header.
    * Use this if you intend to pass the pbuf to functions like udp_send().
@@ -116,23 +124,40 @@ typedef enum {
 
 /** Indicates that the payload directly follows the struct pbuf.
  *  This makes @ref pbuf_header work in both directions. */
+/* 表示 struct pbuf 结构和负载数据是连续且处于同一个内存块中，所以我们可以
+ * 通过 struct pbuf 计算出负载数据的起始地址*/
 #define PBUF_TYPE_FLAG_STRUCT_DATA_CONTIGUOUS       0x80
+
 /** Indicates the data stored in this pbuf can change. If this pbuf needs
  * to be queued, it must be copied/duplicated. */
 #define PBUF_TYPE_FLAG_DATA_VOLATILE                0x40
+
 /** 4 bits are reserved for 16 allocation sources (e.g. heap, pool1, pool2, etc)
  * Internally, we use: 0=heap, 1=MEMP_PBUF, 2=MEMP_PBUF_POOL -> 13 types free*/
+/* 在 pbuf->type_internal 变量中使用 4 bit 表示当前 pbuf 是从哪里分配的，基本的
+ * 来源包括：内存堆（mem_malloc）、MEMP_PBUF（PBUF_REF/ROM）和 MEMP_PBUF_POOL（PBUF_POOL）*/
 #define PBUF_TYPE_ALLOC_SRC_MASK                    0x0F
+
 /** Indicates this pbuf is used for RX (if not set, indicates use for TX).
  * This information can be used to keep some spare RX buffers e.g. for
  * receiving TCP ACKs to unblock a connection) */
+/* 表示当前 pbuf 是用于网卡的接收数据缓冲区，如果没设置这个标志，就表示当前
+ * pbuf 是用于网卡的发送数据缓冲区 */
 #define PBUF_ALLOC_FLAG_RX                          0x0100
+
 /** Indicates the application needs the pbuf payload to be in one piece */
+/* 表示当前 pbuf 的 struct pbuf 结构和负载数据是连续且处于同一个内存块中 */
 #define PBUF_ALLOC_FLAG_DATA_CONTIGUOUS             0x0200
 
+/* 表示当前 pbuf 内存是从系统内存堆（mem_malloc）中申请的，即当前 pbuf 类型为 PBUF_RAM */
 #define PBUF_TYPE_ALLOC_SRC_MASK_STD_HEAP           0x00
+
+/* 表示当前 pbuf 内存是从 MEMP_PBUF 中申请的，即当前 pbuf 类型为 PBUF_REF/ROM */
 #define PBUF_TYPE_ALLOC_SRC_MASK_STD_MEMP_PBUF      0x01
+
+/* 表示当前 pbuf 内存是从 MEMP_PBUF_POOL 中申请的，即当前 pbuf 类型为 PBUF_POOL */
 #define PBUF_TYPE_ALLOC_SRC_MASK_STD_MEMP_PBUF_POOL 0x02
+
 /** First pbuf allocation type for applications */
 #define PBUF_TYPE_ALLOC_SRC_MASK_APP_MIN            0x03
 /** Last pbuf allocation type for applications */
@@ -142,6 +167,7 @@ typedef enum {
  * @ingroup pbuf
  * Enumeration of pbuf types
  */
+/* 定义了当前 LWIP 一共支持的几种 pbuf 数据缓冲区类型 */
 typedef enum {
   /** pbuf data is stored in RAM, used for TX mostly, struct pbuf and its payload
       are allocated in one piece of contiguous memory (so the first payload byte
@@ -149,6 +175,8 @@ typedef enum {
       pbuf_alloc() allocates PBUF_RAM pbufs as unchained pbufs (although that might
       change in future versions).
       This should be used for all OUTGOING packets (TX).*/
+  /* 这种类型的 pbuf 常用于发送数据，这种类型缓冲区的 struct pbuf 结构和负载数据是连续且处于
+   * 同一个内存块中，所以我们可以通过 struct pbuf 计算出负载数据的起始地址 */
   PBUF_RAM = (PBUF_ALLOC_FLAG_DATA_CONTIGUOUS | PBUF_TYPE_FLAG_STRUCT_DATA_CONTIGUOUS | PBUF_TYPE_ALLOC_SRC_MASK_STD_HEAP),
   /** pbuf data is stored in ROM, i.e. struct pbuf and its payload are located in
       totally different memory areas. Since it points to ROM, payload does not
@@ -164,6 +192,11 @@ typedef enum {
       the first payload byte can be calculated from struct pbuf).
       Don't use this for TX, if the pool becomes empty e.g. because of TCP queuing,
       you are unable to receive TCP acks! */
+  /* 这种类型的 pbuf 常用于接收数据，这种类型缓冲区的 struct pbuf 结构和第一个负载数据块是连续
+   * 且处于同一个内存块中，所以我们可以通过 struct pbuf 计算出负载数据的起始地址。又因为网卡驱动
+   * 在接收数据的时候，大部分 DMA 都工作于 scatter-gather 模式且接收数据帧长度不定，所以接收缓冲
+   * 区是通过链表把每个接收 pbuf 数据链接在一起、形成一个 pbuf chain，直到接收到一个完成数据帧时
+   * 才把这个 pbuf chain 提交到协议栈上层进行处理 */
   PBUF_POOL = (PBUF_ALLOC_FLAG_RX | PBUF_TYPE_FLAG_STRUCT_DATA_CONTIGUOUS | PBUF_TYPE_ALLOC_SRC_MASK_STD_MEMP_PBUF_POOL)
 } pbuf_type;
 

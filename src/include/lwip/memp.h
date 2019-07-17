@@ -70,6 +70,13 @@ extern const struct memp_desc* const memp_pools[MEMP_MAX];
  */
 #define LWIP_MEMPOOL_PROTOTYPE(name) extern const struct memp_desc memp_ ## name
 
+/* 如果 MEMP_MEM_MALLOC 设置为 1，表示在从内存池中分配内存单元元素时，通过调用内存堆
+ * mem_malloc 接口获取我们需要的内存空间，这时仅仅需要通过声明 memp_desc 结构体描述每
+ * 个内存池对象的属性信息即可，如果 MEMP_MEM_MALLOC 设置为 0，表示在从内存池中分配内
+ * 存单元元素时，通过从指定的内存池对象中获取我们需要的内存空间，所以这时我们不仅需要
+ * 通过声明 memp_desc 结构体描述每个内存池对象的属性信息，还需要创建每个内存池对象需
+ * 要的内存空间。在 lwip 中，内存池对象的内存空间是通过声明全局数组变量实现的，具体的
+ * 实现见 LWIP_DECLARE_MEMORY_ALIGNED */
 #if MEMP_MEM_MALLOC
 
 #define LWIP_MEMPOOL_DECLARE(name,num,size,desc) \

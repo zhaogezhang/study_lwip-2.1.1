@@ -17,6 +17,8 @@
  * If the include'r doesn't require any special treatment of each of the types
  * above, then will declare #2 & #3 to be just standard mempools.
  */
+/* 默认的 MALLOC_MEMPOOL 内存池声明规则，我们在为 mem_malloc 动态内存管理分配算法声明内存池的时候
+ * 会使用这个宏定义来创建相应的内存池 */
 #ifndef LWIP_MALLOC_MEMPOOL
 /* This treats "malloc pools" just like any other pool.
    The pools are a little bigger to provide 'size' as the amount of user data. */
@@ -25,6 +27,8 @@
 #define LWIP_MALLOC_MEMPOOL_END
 #endif /* LWIP_MALLOC_MEMPOOL */
 
+/* 默认的 PBUF_MEMPOOL 内存池声明规则，我们在为 pbuf 动态内存管理分配算法声明内存池的时候
+ * 会使用这个宏定义来创建相应的内存池 */
 #ifndef LWIP_PBUF_MEMPOOL
 /* This treats "pbuf pools" just like any other pool.
  * Allocates buffers for a pbuf struct AND a payload size */
@@ -137,6 +141,17 @@ LWIP_PBUF_MEMPOOL(PBUF_POOL, PBUF_POOL_SIZE,           PBUF_POOL_BUFSIZE,       
 /*
  * Allow for user-defined pools; this must be explicitly set in lwipopts.h
  * since the default is to NOT look for lwippools.h
+ */
+/* 如果在动态内存管理分配算法中使用内存池提供内存分配空间，那么我们需要创建一个 lwippools.h 文件
+ * 并在这个文件中定义我们需要的内存池，这些内存池会在调用 mem_malloc 函数时使用，定义自定义内存池
+ * 格式如下（因为内存堆分配算法是从 MALLOC_MEMPOOL_START 依次向后查找满足分配需求的内存单元，如果
+ * 找到满足分配需求的内存单元就会立即返回，所以我们在为内存堆创建内存池的时候，需要按照内存池元素
+ * 字节空间大小、按照从小到大的顺序依次创建）：
+ * LWIP_MALLOC_MEMPOOL_START
+ * LWIP_MALLOC_MEMPOOL(20, 256)
+ * LWIP_MALLOC_MEMPOOL(10, 512)
+ * LWIP_MALLOC_MEMPOOL(5, 1512)
+ * LWIP_MALLOC_MEMPOOL_END
  */
 #if MEMP_USE_CUSTOM_POOLS
 #include "lwippools.h"

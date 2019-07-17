@@ -8,7 +8,6 @@
  * @defgroup mempool Memory pools
  * @ingroup infrastructure
  * Custom memory pools
-
  */
 
 /*
@@ -42,7 +41,66 @@
  * Author: Adam Dunkels <adam@sics.se>
  *
  */
-
+/* 在 lwip 内存池分配算法中，一个内存池对象的每个原始内存单元是通过 struct memp 链表
+ * 链接起来的，具体结构如下图：
+ *
+ *    desc->tab ---
+ *                |
+ *                V
+ *    -----------------------------
+ *    | struct memp (link list)   |
+ *    |              next         | ---  
+ *    |---------------------------|   |
+ *    |                           |   |
+ *    |        other space        |   |
+ *    |                           |   |
+ *    -----------------------------   |
+ *                                    |
+ *    ----------------------------- <-|  
+ *    | struct memp (link list)   |
+ *    |              next         | ---  
+ *    |---------------------------|   |
+ *    |                           |   |
+ *    |        other space        |   |
+ *    |                           |   |
+ *    -----------------------------   |
+ *                                    |
+ *    ----------------------------- <-|
+ *    | struct memp (link list)   |
+ *    |              next         | ---  
+ *    |---------------------------|   |
+ *    |                           |   |
+ *    |        other space        |   |
+ *    |                           |   |
+ *    -----------------------------   |
+ *                                    V
+ *
+ * 在 lwip 内存池分配算法中，每个原始内存单元的布局结构和是否开启 MEMP_OVERFLOW_CHECK
+ * 功能有关，下面分别描述开启和不开启的两种情况时的布局结构
+ * 1. 在开启 MEMP_OVERFLOW_CHECK 功能时布局如下：
+ *
+ *          原始内存单元布局
+ *    -----------------------------
+ *    |   struct memp (link list) |
+ *    |---------------------------|
+ *    |   SANITY_REGION_BEFORE    |
+ *    |---------------------------|
+ *    |                           |
+ *    |     用户内存单元空间              |
+ *    |                           |
+ *    -----------------------------
+ *
+ * 2. 在不开启 MEMP_OVERFLOW_CHECK 功能时布局如下：
+ *
+ *          原始内存单元布局
+ *    -----------------------------
+ *    |   struct memp (link list) |
+ *    |---------------------------|
+ *    |                           |
+ *    |     用户内存单元空间              |
+ *    |                           |
+ *    -----------------------------
+ */ 
 #include "lwip/opt.h"
 
 #include "lwip/memp.h"
@@ -75,9 +133,12 @@
 #include "lwip/ip6_frag.h"
 #include "lwip/mld6.h"
 
+/* 为当前 lwip 系统中的每一个内存池对象声明一个 struct memp_desc 结构体以及对应的内存池空间 */
 #define LWIP_MEMPOOL(name,num,size,desc) LWIP_MEMPOOL_DECLARE(name,num,size,desc)
 #include "lwip/priv/memp_std.h"
 
+/* memp 模块中的全局变量，用来保存 lwip 中所有内存池描述符指针，这些内存池指针指向了上面通过
+ * LWIP_MEMPOOL_DECLARE 声明创建的内存池对象，包括 MEMPOOL、MALLOC_MEMPOOL 和 PBUF_MEMPOOL */
 const struct memp_desc *const memp_pools[MEMP_MAX] = {
 #define LWIP_MEMPOOL(name,num,size,desc) &memp_ ## name,
 #include "lwip/priv/memp_std.h"
@@ -87,6 +148,8 @@ const struct memp_desc *const memp_pools[MEMP_MAX] = {
 #include LWIP_HOOK_FILENAME
 #endif
 
+/* 因为在使能 MEMP_MEM_MALLOC 的情况下，MEMP_OVERFLOW_CHECK 合法值都不大于 1
+ * 所以如果这个值大于等于 2，则调整为 1 */
 #if MEMP_MEM_MALLOC && MEMP_OVERFLOW_CHECK >= 2
 #undef MEMP_OVERFLOW_CHECK
 /* MEMP_OVERFLOW_CHECK >= 2 does not work with MEMP_MEM_MALLOC, use 1 instead */
@@ -97,6 +160,15 @@ const struct memp_desc *const memp_pools[MEMP_MAX] = {
 /**
  * Check that memp-lists don't form a circle, using "Floyd's cycle-finding algorithm".
  */
+/*********************************************************************************************************
+** 函数名称: memp_sanity
+** 功能描述: 校验指定的 memp 链表是否正常，即是否是闭环状态，如果是闭环状态，表示处于异常状态
+** 输	 入: desc - 要校验的 memp 描述符
+** 输	 出: 0 - memp 链表是闭环
+**         : 1 - memp 链表不是闭环
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static int
 memp_sanity(const struct memp_desc *desc)
 {
@@ -124,6 +196,15 @@ memp_sanity(const struct memp_desc *desc)
  * @param p the memp element to check
  * @param desc the pool p comes from
  */
+/*********************************************************************************************************
+** 函数名称: memp_overflow_check_element
+** 功能描述: 检查指定的 memp 内存单元元素是否发生过越界访问
+** 输	 入: p - 要校验的 memp 原始内存单元元素起始地址
+**         : desc - 要校验的 memp 内存池对象指针
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void
 memp_overflow_check_element(struct memp *p, const struct memp_desc *desc)
 {
@@ -133,6 +214,15 @@ memp_overflow_check_element(struct memp *p, const struct memp_desc *desc)
 /**
  * Initialize the restricted area of on memp element.
  */
+/*********************************************************************************************************
+** 函数名称: memp_overflow_init_element
+** 功能描述: 初始化指定的 memp 内存单元元素前后的越界访问区内容
+** 输	 入: p - 要校验的 memp 原始内存单元元素起始地址
+**		   : desc - 要校验的 memp 内存池对象指针
+** 输	 出:
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void
 memp_overflow_init_element(struct memp *p, const struct memp_desc *desc)
 {
@@ -145,6 +235,15 @@ memp_overflow_init_element(struct memp *p, const struct memp_desc *desc)
  *
  * @see memp_overflow_check_element for a description of the check
  */
+/*********************************************************************************************************
+** 函数名称: memp_overflow_check_all
+** 功能描述: 分别遍历当前 lwip 系统中每个内存池对象中的内存单元元素是否发生过内存访问越界
+**         : 如果出现过内存访问越界操作，则直接 assert
+** 输	 入: 
+** 输	 出:
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void
 memp_overflow_check_all(void)
 {
@@ -153,8 +252,11 @@ memp_overflow_check_all(void)
   SYS_ARCH_DECL_PROTECT(old_level);
   SYS_ARCH_PROTECT(old_level);
 
+  /* 分别遍历系统中每一个内存池对象 memp_desc */
   for (i = 0; i < MEMP_MAX; ++i) {
     p = (struct memp *)LWIP_MEM_ALIGN(memp_pools[i]->base);
+
+    /* 分别遍历系统中每一个内存池对象 memp_desc 中的每一个内存单元元素 memp */
     for (j = 0; j < memp_pools[i]->num; ++j) {
       memp_overflow_check_element(p, memp_pools[i]);
       p = LWIP_ALIGNMENT_CAST(struct memp *, ((u8_t *)p + MEMP_SIZE + memp_pools[i]->size + MEM_SANITY_REGION_AFTER_ALIGNED));
@@ -171,6 +273,14 @@ memp_overflow_check_all(void)
  *
  * @param desc pool to initialize
  */
+/*********************************************************************************************************
+** 函数名称: memp_init_pool
+** 功能描述: 初始化一个指定的内存池对象，把内存池对象中的每个内存单元元素通过 struct memp 链表连接起来
+** 输	 入: desc - 要初始化的内存池对象指针
+** 输	 出:
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 memp_init_pool(const struct memp_desc *desc)
 {
@@ -181,7 +291,11 @@ memp_init_pool(const struct memp_desc *desc)
   struct memp *memp;
 
   *desc->tab = NULL;
+
+  /* 获取当前内存池对象内存空间中的第一个内存单元元素的 struct memp 地址 */
   memp = (struct memp *)LWIP_MEM_ALIGN(desc->base);
+
+  /* 如果开启 MEMP_MEM_INIT，则把内存池对象的内存空间清空为 0 */
 #if MEMP_MEM_INIT
   /* force memset on pool memory */
   memset(memp, 0, (size_t)desc->num * (MEMP_SIZE + desc->size
@@ -190,7 +304,9 @@ memp_init_pool(const struct memp_desc *desc)
 #endif
                                       ));
 #endif
+
   /* create a linked list of memp elements */
+  /* 把指定的内存池对象中的内存空间通过 struct memp 链表连接起来 */
   for (i = 0; i < desc->num; ++i) {
     memp->next = *desc->tab;
     *desc->tab = memp;
@@ -220,6 +336,15 @@ memp_init_pool(const struct memp_desc *desc)
  *
  * Carves out memp_memory into linked lists for each pool-type.
  */
+/*********************************************************************************************************
+** 函数名称: memp_init
+** 功能描述: 初始化当前 lwip 系统中的每一个内存池对象，把内存池对象中的每个内存单元元素通过 struct memp 
+**         : 链表连接起来，并在初始化之后校验每个内存池是否出现过内存访问越界操作
+** 输	 入:
+** 输	 出:
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 memp_init(void)
 {
@@ -239,17 +364,30 @@ memp_init(void)
   memp_overflow_check_all();
 #endif /* MEMP_OVERFLOW_CHECK >= 2 */
 }
-
+/*********************************************************************************************************
+** 函数名称: do_memp_malloc_pool or do_memp_malloc_pool_fn
+** 功能描述: 从指定的内存池对象中拿出一个空闲的内存单元元素
+** 输	 入: desc - 提供内存单元元素的内存池对象
+** 输	 出: u8_t * - 用户内存单元元素起始地址
+**         : NULL - 申请失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void *
 #if !MEMP_OVERFLOW_CHECK
+/* 不执行内存池内存访问越界检查的内存单元元素申请函数 */
 do_memp_malloc_pool(const struct memp_desc *desc)
 #else
+/* 需要执行内存池内存访问越界检查的内存单元元素申请函数 */
 do_memp_malloc_pool_fn(const struct memp_desc *desc, const char *file, const int line)
 #endif
 {
   struct memp *memp;
   SYS_ARCH_DECL_PROTECT(old_level);
 
+/* 如果 MEMP_MEM_MALLOC 设置为 1，表示 lwip 内存池申请的内存是通过内存堆算法实现的 
+ * 所以我们直接通过内存堆分配内存接口获取我们需要的内存，如果 MEMP_MEM_MALLOC 设置
+ * 为 0，表示内存池使用自己的分配算法，所以我们从内存池中获取需要的内存单元 */
 #if MEMP_MEM_MALLOC
   memp = (struct memp *)mem_malloc(MEMP_SIZE + MEMP_ALIGN_SIZE(desc->size));
   SYS_ARCH_PROTECT(old_level);
@@ -264,12 +402,14 @@ do_memp_malloc_pool_fn(const struct memp_desc *desc, const char *file, const int
 #if MEMP_OVERFLOW_CHECK == 1
     memp_overflow_check_element(memp, desc);
 #endif /* MEMP_OVERFLOW_CHECK */
-
+	/* 更新当前内存池对象的 tab 地址，使其指向下一个空闲内存单元元素地址 */
     *desc->tab = memp->next;
 #if MEMP_OVERFLOW_CHECK
     memp->next = NULL;
 #endif /* MEMP_OVERFLOW_CHECK */
 #endif /* !MEMP_MEM_MALLOC */
+
+/* 如果开启了内存访问越界检查，则记录申请当前内存单元元素的调用者所在文件以及行数 */
 #if MEMP_OVERFLOW_CHECK
     memp->file = file;
     memp->line = line;
@@ -306,6 +446,15 @@ do_memp_malloc_pool_fn(const struct memp_desc *desc, const char *file, const int
  *
  * @return a pointer to the allocated memory or a NULL pointer on error
  */
+/*********************************************************************************************************
+** 函数名称: memp_malloc_pool or memp_malloc_pool_fn
+** 功能描述: 从指定的内存池对象中拿出一个空闲的内存单元元素
+** 输	 入: desc - 提供内存单元元素的内存池对象
+** 输	 出: void * - 用户内存单元元素起始地址
+**		   : NULL - 申请失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void *
 #if !MEMP_OVERFLOW_CHECK
 memp_malloc_pool(const struct memp_desc *desc)
@@ -332,6 +481,15 @@ memp_malloc_pool_fn(const struct memp_desc *desc, const char *file, const int li
  *
  * @return a pointer to the allocated memory or a NULL pointer on error
  */
+/*********************************************************************************************************
+** 函数名称: memp_malloc or memp_malloc_fn
+** 功能描述: 从指定索引的内存池中拿出一个空闲的内存单元元素
+** 输	 入: type - 提供内存单元元素的内存池索引
+** 输	 出: void * - 用户内存单元元素起始地址
+**		   : NULL - 申请失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void *
 #if !MEMP_OVERFLOW_CHECK
 memp_malloc(memp_t type)
@@ -354,7 +512,15 @@ memp_malloc_fn(memp_t type, const char *file, const int line)
 
   return memp;
 }
-
+/*********************************************************************************************************
+** 函数名称: do_memp_free_pool
+** 功能描述: 向指定的内存池对象中释放一个内存单元元素
+** 输	 入: desc - 存储释放内存单元元素的内存池对象
+**         : mem - 需要释放的用户内存单元元素起始地址
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void
 do_memp_free_pool(const struct memp_desc *desc, void *mem)
 {
@@ -382,6 +548,7 @@ do_memp_free_pool(const struct memp_desc *desc, void *mem)
   SYS_ARCH_UNPROTECT(old_level);
   mem_free(memp);
 #else /* MEMP_MEM_MALLOC */
+  /* 把需要释放的内存单元元素插入到指定的内存对象空闲链表中 */
   memp->next = *desc->tab;
   *desc->tab = memp;
 
@@ -399,6 +566,15 @@ do_memp_free_pool(const struct memp_desc *desc, void *mem)
  * @param desc the pool where to put mem
  * @param mem the memp element to free
  */
+/*********************************************************************************************************
+** 函数名称: memp_free_pool
+** 功能描述: 向指定的内存池对象中释放一个内存单元元素
+** 输	 入: desc - 存储释放内存单元元素的内存池对象
+**		   : mem - 需要释放的用户内存单元元素起始地址
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 memp_free_pool(const struct memp_desc *desc, void *mem)
 {
@@ -416,6 +592,15 @@ memp_free_pool(const struct memp_desc *desc, void *mem)
  * @param type the pool where to put mem
  * @param mem the memp element to free
  */
+/*********************************************************************************************************
+** 函数名称: memp_free_pool
+** 功能描述: 向指定索引的内存池对象中释放一个内存单元元素
+** 输	 入: type - 存储释放内存单元元素的内存池索引值
+**		   : mem - 需要释放的用户内存单元元素起始地址
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 memp_free(memp_t type, void *mem)
 {

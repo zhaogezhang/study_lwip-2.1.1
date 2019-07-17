@@ -51,7 +51,10 @@ extern "C" {
 
 
 /* MEMP_SIZE: save space for struct memp and for sanity check */
+/* 如果在 memp 模块中开启了内存访问越界检查，那么在每个用户内存单元前会预留出部分空间
+ * 用来存储 struct memp 结构体以及越界访问检查的安全区数据 */
 #define MEMP_SIZE          (LWIP_MEM_ALIGN_SIZE(sizeof(struct memp)) + MEM_SANITY_REGION_BEFORE_ALIGNED)
+
 #define MEMP_ALIGN_SIZE(x) (LWIP_MEM_ALIGN_SIZE(x) + MEM_SANITY_REGION_AFTER_ALIGNED)
 
 #else /* MEMP_OVERFLOW_CHECK */
@@ -66,20 +69,36 @@ extern "C" {
 #endif /* MEMP_OVERFLOW_CHECK */
 
 #if !MEMP_MEM_MALLOC || MEMP_OVERFLOW_CHECK
+/* 这个结构体描述了内存池对象中的一个原始内存元素 */
 struct memp {
   struct memp *next;
 #if MEMP_OVERFLOW_CHECK
+  /* 记录申请当前内存单元元素调用者所在的文件名 */
   const char *file;
+
+  /* 记录申请当前内存单元元素调用者所在文件的行数 */
   int line;
 #endif /* MEMP_OVERFLOW_CHECK */
 };
 #endif /* !MEMP_MEM_MALLOC || MEMP_OVERFLOW_CHECK */
 
+/* 如果使用自定义的内存池来为 mem_malloc 动态内存管理算法提供堆空间，那么我们需要创建 lwippools.h 
+ * 文件并在这个文件中添加自定义的内存池，通过下面的枚举变量来表示自定义内存池下标索引值范围，定义
+ * 自定义内存池格式如下（因为内存堆分配算法是从 MALLOC_MEMPOOL_START 依次向后查找满足分配需求的内
+ * 存单元，如果找到满足分配需求的内存单元就会立即返回，所以我们在为内存堆创建内存池的时候，需要按
+ * 照内存池元素字节空间大小、按照从小到大的顺序依次创建）：
+ * LWIP_MALLOC_MEMPOOL_START
+ * LWIP_MALLOC_MEMPOOL(20, 256)
+ * LWIP_MALLOC_MEMPOOL(10, 512)
+ * LWIP_MALLOC_MEMPOOL(5, 1512)
+ * LWIP_MALLOC_MEMPOOL_END */
 #if MEM_USE_POOLS && MEMP_USE_CUSTOM_POOLS
 /* Use a helper type to get the start and end of the user "memory pools" for mem_malloc */
 typedef enum {
     /* Get the first (via:
-       MEMP_POOL_HELPER_START = ((u8_t) 1*MEMP_POOL_A + 0*MEMP_POOL_B + 0*MEMP_POOL_C + 0)*/
+       MEMP_POOL_HELPER_START = ((u8_t) 1*MEMP_POOL_A + 0*MEMP_POOL_B + 0*MEMP_POOL_C + 0)
+       其中 MEMP_POOL_A 代表的是用户自定义内存池起始索引值，在 memp.h 文件的 memp_t 变量中
+       定义的，对应的内存池创建宏是 memp_std.h 文件中的 LWIP_MALLOC_MEMPOOL */
     MEMP_POOL_HELPER_FIRST = ((u8_t)
 #define LWIP_MEMPOOL(name,num,size,desc)
 #define LWIP_MALLOC_MEMPOOL_START 1
@@ -88,7 +107,9 @@ typedef enum {
 #include "lwip/priv/memp_std.h"
     ) ,
     /* Get the last (via:
-       MEMP_POOL_HELPER_END = ((u8_t) 0 + MEMP_POOL_A*0 + MEMP_POOL_B*0 + MEMP_POOL_C*1) */
+       MEMP_POOL_HELPER_END = ((u8_t) 0 + MEMP_POOL_A*0 + MEMP_POOL_B*0 + MEMP_POOL_C*1) 
+       其中 MEMP_POOL_C 代表的是用户自定义内存池结束索引值，在 memp.h 文件的 memp_t 变量中
+       定义的，对应的内存池创建宏是 memp_std.h 文件中的 LWIP_MALLOC_MEMPOOL */
     MEMP_POOL_HELPER_LAST = ((u8_t)
 #define LWIP_MEMPOOL(name,num,size,desc)
 #define LWIP_MALLOC_MEMPOOL_START
@@ -105,6 +126,7 @@ typedef enum {
 #endif /* MEM_USE_POOLS && MEMP_USE_CUSTOM_POOLS */
 
 /** Memory pool descriptor */
+/* 这个结构体描述了内存池中的一个内存池对象 */
 struct memp_desc {
 #if defined(LWIP_DEBUG) || MEMP_OVERFLOW_CHECK || LWIP_STATS_DISPLAY
   /** Textual description */
@@ -116,16 +138,20 @@ struct memp_desc {
 #endif
 
   /** Element size */
+  /* 当前内存池对象中每个原始内存单元元素字节空间大小 */
   u16_t size;
 
 #if !MEMP_MEM_MALLOC
   /** Number of elements */
+  /* 当前内存池对象中一共包含的原始内存单元元素个数 */
   u16_t num;
 
   /** Base address */
+  /* 当前内存池对象总体内存空间的起始地址 */
   u8_t *base;
 
   /** First free element of each pool. Elements form a linked list. */
+  /* 当前内存池对象中第一个空闲的原始内存单元元素地址 */
   struct memp **tab;
 #endif /* MEMP_MEM_MALLOC */
 };

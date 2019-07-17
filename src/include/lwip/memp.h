@@ -49,6 +49,8 @@ extern "C" {
 #include "lwip/priv/memp_std.h"
 
 /** Create the list of all memory pools managed by memp. MEMP_MAX represents a NULL pool at the end */
+/* 为 lwip 管理的每一个内存池（包括 MEMPOOL、MALLOC_MEMPOOL 和 PBUF_MEMPOOL）创建一个与其名字对应的
+ * 枚举型变量，这个枚举变量可以当做 memp_pools 全局数组下标使用 */
 typedef enum {
 #define LWIP_MEMPOOL(name,num,size,desc)  MEMP_##name,
 #include "lwip/priv/memp_std.h"
@@ -58,6 +60,8 @@ typedef enum {
 #include "lwip/priv/memp_priv.h"
 #include "lwip/stats.h"
 
+/* 定义一个全局 memp_desc 指针数组，用来存储系统中所有内存池描述符指针
+ *（包括 MEMPOOL、MALLOC_MEMPOOL 和 PBUF_MEMPOOL）*/
 extern const struct memp_desc* const memp_pools[MEMP_MAX];
 
 /**
@@ -131,8 +135,10 @@ extern const struct memp_desc* const memp_pools[MEMP_MAX];
  * This has to be defined here as it is required for pool size calculation. */
 struct memp_malloc_helper
 {
+   /* 记录当前的内存池单元是从哪个内存池中申请的，即内存池数组下标值 */
    memp_t poolnr;
 #if MEMP_OVERFLOW_CHECK || (LWIP_STATS && MEM_STATS)
+   /* 记录当前的内存池单元中，分配给用户的空间字节数 */
    u16_t size;
 #endif /* MEMP_OVERFLOW_CHECK || (LWIP_STATS && MEM_STATS) */
 };

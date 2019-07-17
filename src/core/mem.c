@@ -11,14 +11,17 @@
  * a heap but might waste some memory), define MEM_USE_POOLS to 1, define
  * MEMP_USE_CUSTOM_POOLS to 1 and create a file "lwippools.h" that includes a list
  * of pools like this (more pools can be added between _START and _END):
- *
+ *********************************************************************************************************
  * Define three pools with sizes 256, 512, and 1512 bytes
  * LWIP_MALLOC_MEMPOOL_START
  * LWIP_MALLOC_MEMPOOL(20, 256)
  * LWIP_MALLOC_MEMPOOL(10, 512)
  * LWIP_MALLOC_MEMPOOL(5, 1512)
  * LWIP_MALLOC_MEMPOOL_END
- */
+ * 因为内存堆分配算法是从 MALLOC_MEMPOOL_START 依次向后查找满足分配需求的内存单元，如果
+ * 找到满足分配需求的内存单元就会立即返回，所以我们在为内存堆创建内存池的时候，需要按照内存池元素
+ * 字节空间大小、按照从小到大的顺序依次创建
+ ********************************************************************************************************/
 
 /*
  * Copyright (c) 2001-2004 Swedish Institute of Computer Science.
@@ -157,8 +160,8 @@
 **         : 分配的内存单元前和后预留部分空间并初始化为 0xcd，这样在发生内存访问溢出的时候就会把这些
 **         : 预留的 0xcd 内容修改成其他值，所有我们可以通过检查分配的内存单元前后预留空间的内容是否被
 **         : 修改来判断是否发生内存访问越界现象
-** 输	 入: p - 要检查的内存单元起始地址
-**         : size - 要检查的内存单元空间大小
+** 输	 入: p - 要检查的内存单元起始地址，用户内存单元起始地址
+**         : size - 要检查的内存单元空间大小，用户内存单元字节数大小
 **         : descr1 - 在发生越界访问时，需要打印的标志信息
 **         : descr2 - 在发生越界访问时，需要打印的标志信息
 ** 输     出: 
@@ -214,8 +217,8 @@ mem_overflow_check_raw(void *p, size_t size, const char *descr1, const char *des
 **		   : 分配的内存单元前和后预留部分空间并初始化为 0xcd，这样在发生内存访问溢出的时候就会把这些
 **		   : 预留的 0xcd 内容修改成其他值，所有我们可以通过检查分配的内存单元前后预留空间的内容是否被
 **		   : 修改来判断是否发生内存访问越界现象
-** 输	 入: p - 要检查的内存单元起始地址
-**		   : size - 要检查的内存单元空间大小
+** 输	 入: p - 要检查的用户内存单元起始地址
+**		   : size - 要检查的用户内存单元空间大小
 ** 输	 出: 
 ** 全局变量: 
 ** 调用模块: 
@@ -380,11 +383,14 @@ mem_malloc(mem_size_t size)
     /* is this pool big enough to hold an element of the required size
        plus a struct memp_malloc_helper that saves the pool this element came from? */
     if (required_size <= memp_pools[poolnr]->size) {
+	  /* 从索引为 poolnr 的内存池对象中申请一个内存单元元素 */
       element = (struct memp_malloc_helper *)memp_malloc(poolnr);
       if (element == NULL) {
         /* No need to DEBUGF or ASSERT: This error is already taken care of in memp.c */
 #if MEM_USE_POOLS_TRY_BIGGER_POOL
         /** Try a bigger pool if this one is empty! */
+        /* 如果   MEM_USE_POOLS_TRY_BIGGER_POOL 设置为 1 表示我们从内存池中申请内存单元元素
+         * 失败的时候，是否尝试从更高阶的内存池对象中申请我们需要的内存 */
         if (poolnr < MEMP_POOL_LAST) {
           continue;
         }

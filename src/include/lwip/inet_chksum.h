@@ -56,7 +56,10 @@
 /** Function-like macro: same as MEMCPY but returns the checksum of copied data
     as u16_t */
 # ifndef LWIP_CHKSUM_COPY
+
+/* 把指定长度的源数据复制到指定的目的地址处，并计算复制的这部分数据的校验和（网络字节序）*/
 #  define LWIP_CHKSUM_COPY(dst, src, len) lwip_chksum_copy(dst, src, len)
+
 #  ifndef LWIP_CHKSUM_COPY_ALGORITHM
 #   define LWIP_CHKSUM_COPY_ALGORITHM 1
 #  endif /* LWIP_CHKSUM_COPY_ALGORITHM */

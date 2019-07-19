@@ -134,6 +134,7 @@ LWIP_MEMPOOL(MLD6_GROUP,     MEMP_NUM_MLD6_GROUP,      sizeof(struct mld_group),
  *     This allocates enough space for the pbuf struct and a payload.
  *     (Example: pbuf_payload_size=0 allocates only size for the struct)
  */
+/* 为 lwip 协议栈中 pbuf 模块创建需要的内存池 */
 LWIP_MEMPOOL(PBUF,           MEMP_NUM_PBUF,            sizeof(struct pbuf),           "PBUF_REF/ROM")
 LWIP_PBUF_MEMPOOL(PBUF_POOL, PBUF_POOL_SIZE,           PBUF_POOL_BUFSIZE,             "PBUF_POOL")
 

@@ -76,6 +76,15 @@ u16_t lwip_standard_chksum(const void *dataptr, int len);
  * @note accumulator size limits summable length to 64k
  * @note host endianess is irrelevant (p3 RFC1071)
  */
+/*********************************************************************************************************
+** 函数名称: lwip_standard_chksum
+** 功能描述: 计算指定数据的校验和值
+** 输	 入: dataptr - 需要计算校验和数据的起始地址
+**		   : len - 需要计算校验和数据的长度
+** 输	 出: u16_t - 计算后的校验和（网络字节序）
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 u16_t
 lwip_standard_chksum(const void *dataptr, int len)
 {
@@ -599,6 +608,16 @@ inet_chksum_pbuf(struct pbuf *p)
  * For architectures with big caches, data might still be in cache when
  * generating the checksum after copying.
  */
+/*********************************************************************************************************
+** 函数名称: lwip_chksum_copy
+** 功能描述: 把指定长度的源数据复制到指定的目的地址处，并计算复制的这部分数据的校验和（网络字节序）
+** 输	 入: dst - 存储数据的目的地址
+**		   : src - 需要复制的源数据地址
+**         : len - 需要复制的数据长度
+** 输	 出: u16_t - 计算后的校验和（网络字节序）
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 u16_t
 lwip_chksum_copy(void *dst, const void *src, u16_t len)
 {

@@ -125,7 +125,7 @@ typedef enum {
 /** Indicates that the payload directly follows the struct pbuf.
  *  This makes @ref pbuf_header work in both directions. */
 /* 表示 struct pbuf 结构和负载数据是连续且处于同一个内存块中，所以我们可以
- * 通过 struct pbuf 计算出负载数据的起始地址*/
+ * 通过 struct pbuf 计算出负载数据的起始地址 */
 #define PBUF_TYPE_FLAG_STRUCT_DATA_CONTIGUOUS       0x80
 
 /** Indicates the data stored in this pbuf can change. If this pbuf needs
@@ -203,9 +203,12 @@ typedef enum {
 
 /** indicates this packet's data should be immediately passed to the application */
 #define PBUF_FLAG_PUSH      0x01U
+
 /** indicates this is a custom pbuf: pbuf_free calls pbuf_custom->custom_free_function()
     when the last reference is released (plus custom PBUF_RAM cannot be trimmed) */
+/* 表示当前的 pbuf 类型是用户自定义的 pbuf_custom */
 #define PBUF_FLAG_IS_CUSTOM 0x02U
+
 /** indicates this pbuf is UDP multicast to be looped back */
 #define PBUF_FLAG_MCASTLOOP 0x04U
 /** indicates this pbuf was received as link-level broadcast */
@@ -233,6 +236,7 @@ struct pbuf {
   u16_t tot_len;
 
   /** length of this buffer */
+  /* 表示当前 pbuf 结构有效负载空间字节数，不包含被隐藏的协议头数据 */
   u16_t len;
 
   /** a bit field indicating pbuf type and allocation sources
@@ -240,7 +244,7 @@ struct pbuf {
     */
   u8_t type_internal;
 
-  /** misc flags */
+  /** misc flags，for example PBUF_FLAG_IS_CUSTOM */
   u8_t flags;
 
   /**
@@ -248,6 +252,7 @@ struct pbuf {
    * that refer to this pbuf. This can be pointers from an application,
    * the stack itself, or pbuf->next pointers from a chain.
    */
+  /* 表示当前 pbuf 结构的引用计数（刚申请的 pbuf 默认引用计数为 1）*/
   LWIP_PBUF_REF_T ref;
 
   /** For incoming packets, this contains the input netif's index */
@@ -310,8 +315,13 @@ struct pbuf *pbuf_alloced_custom(pbuf_layer l, u16_t length, pbuf_type type,
                                  u16_t payload_mem_len);
 #endif /* LWIP_SUPPORT_CUSTOM_PBUF */
 void pbuf_realloc(struct pbuf *p, u16_t size);
+
+/* 获取指定的 pbuf 类型标志信息 */
 #define pbuf_get_allocsrc(p)          ((p)->type_internal & PBUF_TYPE_ALLOC_SRC_MASK)
+
+/* 判断指定的 pbuf 是否是指定的类型 */
 #define pbuf_match_allocsrc(p, type)  (pbuf_get_allocsrc(p) == ((type) & PBUF_TYPE_ALLOC_SRC_MASK))
+
 #define pbuf_match_type(p, type)      pbuf_match_allocsrc(p, type)
 u8_t pbuf_header(struct pbuf *p, s16_t header_size);
 u8_t pbuf_header_force(struct pbuf *p, s16_t header_size);

@@ -276,7 +276,7 @@ typedef int ssize_t;
  * multiple of MEM_ALIGNMENT (e.g. LWIP_MEM_ALIGN_SIZE(3) and
  * LWIP_MEM_ALIGN_SIZE(4) will both yield 4 for MEM_ALIGNMENT == 4).
  */
-/* 把指定的地址按照设定的对齐字节数向上对齐 */
+/* 把指定的数据按照设定的对齐字节数向上对齐 */
 #ifndef LWIP_MEM_ALIGN_SIZE
 #define LWIP_MEM_ALIGN_SIZE(size) (((size) + MEM_ALIGNMENT - 1U) & ~(MEM_ALIGNMENT-1U))
 #endif

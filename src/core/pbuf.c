@@ -67,6 +67,54 @@
  * Author: Adam Dunkels <adam@sics.se>
  *
  */
+/* 在 LWIP 协议栈中，pbuf chain 组织结构如下：
+ * 
+ *               first  pbuf 内存单元
+ *          -----------------------------
+ *          |                           |
+ *          |    SIZEOF_STRUCT_PBUF     |
+ *          |                  next     | ---
+ *          |---------------------------|   |
+ *          |                           |   |
+ *          |    protocol header len    |   |
+ *          |                           |   |
+ *          |---------------------------|   |
+ *          |                           |   |
+ *          |                           |   |
+ *          |     pbuf payload data     |   |
+ *          |                           |   |
+ *          |                           |   |
+ *          -----------------------------   |
+ *                                          |
+ *                                          |
+ *              second  pbuf 内存单元           |
+ *          ----------------------------- <--
+ *          |                           |
+ *          |    SIZEOF_STRUCT_PBUF     |
+ *          |                  next     | ---
+ *          |---------------------------|   |
+ *          |                           |   |
+ *          |                           |   |
+ *          |     pbuf payload data     |   |
+ *          |                           |   |
+ *          |                           |   |
+ *          -----------------------------   |
+ *                                          |
+ *               third  pbuf 内存单元           |
+ *          ----------------------------- <--
+ *          |                           |
+ *          |    SIZEOF_STRUCT_PBUF     |
+ *          |                  next     | ---
+ *          |---------------------------|   |
+ *          |                           |   |
+ *          |                           |   |
+ *          |     pbuf payload data     |   |
+ *          |                           |   |
+ *          |                           |   |
+ *          -----------------------------   |
+ *                                          |
+ *                                          V
+ */
 
 #include "lwip/opt.h"
 
@@ -86,9 +134,12 @@
 
 #include <string.h>
 
+/* 计算 struct pbuf 在 lwip 设定的对齐方式下，占用空间字节数 */
 #define SIZEOF_STRUCT_PBUF        LWIP_MEM_ALIGN_SIZE(sizeof(struct pbuf))
+
 /* Since the pool is created in memp, PBUF_POOL_BUFSIZE will be automatically
    aligned there. Therefore, PBUF_POOL_BUFSIZE_ALIGNED can be used here. */
+/* 表示网卡接收数据使用的 PBUF_POOL 内存池对象中，一个内存池单元元素空间大小，用来存储一个数据帧数据 */
 #define PBUF_POOL_BUFSIZE_ALIGNED LWIP_MEM_ALIGN_SIZE(PBUF_POOL_BUFSIZE)
 
 static const struct pbuf *
@@ -101,6 +152,7 @@ pbuf_skip_const(const struct pbuf *in, u16_t in_offset, u16_t *out_offset);
 #if !NO_SYS
 #ifndef PBUF_POOL_FREE_OOSEQ_QUEUE_CALL
 #include "lwip/tcpip.h"
+/* 通过 tcpip_try_callback 回调回收 tcp_active_pcbs 链表上的所有 out of sequence 数据包内存 */
 #define PBUF_POOL_FREE_OOSEQ_QUEUE_CALL()  do { \
   if (tcpip_try_callback(pbuf_free_ooseq_callback, NULL) != ERR_OK) { \
       SYS_ARCH_PROTECT(old_level); \
@@ -121,6 +173,14 @@ volatile u8_t pbuf_free_ooseq_pending;
  * This must be done in the correct thread context therefore this function
  * can only be used with NO_SYS=0 and through tcpip_callback.
  */
+/*********************************************************************************************************
+** 函数名称: pbuf_free_ooseq
+** 功能描述: 遍历 tcp_active_pcbs 链表上的每一个 tcp_pcb 并释放上面所有 out of sequence 数据包
+** 输	 入: 
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 #if !NO_SYS
 static
 #endif /* !NO_SYS */
@@ -144,6 +204,15 @@ pbuf_free_ooseq(void)
 /**
  * Just a callback function for tcpip_callback() that calls pbuf_free_ooseq().
  */
+/*********************************************************************************************************
+** 函数名称: pbuf_free_ooseq_callback
+** 功能描述: 遍历 tcp_active_pcbs 链表上的每一个 tcp_pcb 并释放上面所有 out of sequence 数据包
+** 注     释: 这是一个回调函数，通过 tcpip_callback 执行
+** 输	 入: 
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void
 pbuf_free_ooseq_callback(void *arg)
 {
@@ -153,6 +222,14 @@ pbuf_free_ooseq_callback(void *arg)
 #endif /* !NO_SYS */
 
 /** Queue a call to pbuf_free_ooseq if not already queued. */
+/*********************************************************************************************************
+** 函数名称: pbuf_pool_is_empty
+** 功能描述: 如果当前系统没有待执行的回收 ooseq 的回调函数，则通过 tcpip_try_callback 启动一个
+** 输	 入: 
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void
 pbuf_pool_is_empty(void)
 {
@@ -175,6 +252,20 @@ pbuf_pool_is_empty(void)
 #endif /* !LWIP_TCP || !TCP_QUEUE_OOSEQ || !PBUF_POOL_FREE_OOSEQ */
 
 /* Initialize members of struct pbuf after allocation */
+/*********************************************************************************************************
+** 函数名称: pbuf_init_alloced_pbuf
+** 功能描述: 初始化指定的 pbuf 字段成员到指定的值
+** 注     释: 刚分配的、还没使用的 pbuf 引用计数默认为 1
+** 输	 入: p - 要初始化的 pubf 指针
+**         : payload - 当前 pbuf 负载数据空间起始地址
+**         : tot_len - 当前 pbuf tot_len 字段值
+**         : len -     当前 pbuf len 字段值
+**         : type -    当前 pbuf 类型
+**         : flags -   当前 pbuf flags 字段值
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void
 pbuf_init_alloced_pbuf(struct pbuf *p, void *payload, u16_t tot_len, u16_t len, pbuf_type type, u8_t flags)
 {
@@ -220,6 +311,19 @@ pbuf_init_alloced_pbuf(struct pbuf *p, void *payload, u16_t tot_len, u16_t len, 
  * @return the allocated pbuf. If multiple pbufs where allocated, this
  * is the first pbuf of a pbuf chain.
  */
+/*********************************************************************************************************
+** 函数名称: pbuf_alloc
+** 功能描述: 申请一个指定 TCP/IP 协议层（预留协议头需要的空间）、指定要申请的内存空间大小和指定类型的
+**         : pbuf，通过 pbuf_alloc 申请到的如果是 pbuf chain，那么 pbuf chain 链表上的每个 pbuf 成员
+**         : 引用计数都是 1（因为默认情况，刚申请的 pbuf 引用计数是 1）
+** 输	 入: layer - TCP/IP 协议层（协议头需要的空间字节数）
+**		   : length - 要申请的 pbuf 负载空间大小
+**		   : type - 要申请的 pbuf 类型
+** 输	 出: p - 成功申请的 pbuf 指针
+**		   : NULL - 申请失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 struct pbuf *
 pbuf_alloc(pbuf_layer layer, u16_t length, pbuf_type type)
 {
@@ -232,26 +336,37 @@ pbuf_alloc(pbuf_layer layer, u16_t length, pbuf_type type)
     case PBUF_ROM:
       p = pbuf_alloc_reference(NULL, length, type);
       break;
+
+	/* 常在网卡接收数据时使用这种类型的 pbuf，如果要申请的内存空间较大，会返回一个 pbuf chain */
     case PBUF_POOL: {
       struct pbuf *q, *last;
       u16_t rem_len; /* remaining length */
       p = NULL;
       last = NULL;
       rem_len = length;
+	  
       do {
         u16_t qlen;
+		
+  	    /* 从 PBUF_POOL 内存池中申请内存空间 */
         q = (struct pbuf *)memp_malloc(MEMP_PBUF_POOL);
         if (q == NULL) {
           PBUF_POOL_IS_EMPTY();
           /* free chain so far allocated */
+		  /* 如果 PBUF_POOL 内存池中的内存空间不足且成功申请了部分内存，则释放那些成功申请的部分内存 */
           if (p) {
             pbuf_free(p);
           }
           /* bail out unsuccessfully */
           return NULL;
         }
+
+		/* 因为是从 MEMP_PBUF_POOL 内存池中申请内存，而 MEMP_PBUF_POOL 内存池每次最大可以申请 PBUF_POOL_BUFSIZE_ALIGNED
+		 * 个字节内存空间，所以在需要申请大量内存时，会返回一个 pbuf chain，qlen 变量计算了本次需要从 MEMP_PBUF_POOL
+		 * 中申请内存空间的字节数 */
         qlen = LWIP_MIN(rem_len, (u16_t)(PBUF_POOL_BUFSIZE_ALIGNED - LWIP_MEM_ALIGN_SIZE(offset)));
-        pbuf_init_alloced_pbuf(q, LWIP_MEM_ALIGN((void *)((u8_t *)q + SIZEOF_STRUCT_PBUF + offset)),
+
+		pbuf_init_alloced_pbuf(q, LWIP_MEM_ALIGN((void *)((u8_t *)q + SIZEOF_STRUCT_PBUF + offset)),
                                rem_len, qlen, type, 0);
         LWIP_ASSERT("pbuf_alloc: pbuf q->payload properly aligned",
                     ((mem_ptr_t)q->payload % MEM_ALIGNMENT) == 0);
@@ -262,6 +377,7 @@ pbuf_alloc(pbuf_layer layer, u16_t length, pbuf_type type)
           p = q;
         } else {
           /* make previous pbuf point to this pbuf */
+		  /* 如果是 pbuf chain，则把新申请的 pbuf 插入到之前申请的 pbuf 链表尾部 */
           last->next = q;
         }
         last = q;
@@ -270,6 +386,8 @@ pbuf_alloc(pbuf_layer layer, u16_t length, pbuf_type type)
       } while (rem_len > 0);
       break;
     }
+
+	/* 常在发送数据时使用这种类型的 pbuf，因为是从内存堆中申请内存，所以申请后的 pbuf 是一个完成内存块 */
     case PBUF_RAM: {
       u16_t payload_len = (u16_t)(LWIP_MEM_ALIGN_SIZE(offset) + LWIP_MEM_ALIGN_SIZE(length));
       mem_size_t alloc_len = (mem_size_t)(LWIP_MEM_ALIGN_SIZE(SIZEOF_STRUCT_PBUF) + payload_len);
@@ -323,6 +441,17 @@ pbuf_alloc(pbuf_layer layer, u16_t length, pbuf_type type)
  *
  * @return the allocated pbuf.
  */
+/*********************************************************************************************************
+** 函数名称: pbuf_alloc_reference
+** 功能描述: 从 MEMP_PBUF 中申请一个 PBUF_REF/ROM 类型的 pbuf，即只申请 struct pbuf 结构体空间
+** 输	 入: payload - 申请后 pbuf 负载数据起始地址
+**		   : length - 申请后 pbuf 包含的应用负载数据长度
+**		   : type - 申请的 pbuf 类型
+** 输	 出: p - 成功申请的 struct pbuf 指针
+**		   : NULL - 申请失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 struct pbuf *
 pbuf_alloc_reference(void *payload, u16_t length, pbuf_type type)
 {
@@ -359,6 +488,20 @@ pbuf_alloc_reference(void *payload, u16_t length, pbuf_type type)
  * @param payload_mem_len the size of the 'payload_mem' buffer, must be at least
  *        big enough to hold 'length' plus the header size
  */
+/*********************************************************************************************************
+** 函数名称: pbuf_alloced_custom
+** 功能描述: 初始化一个指定的、用户自定义的 pbuf_custom 结构 
+** 输	 入: l - 当前 pbuf_custom 中协议头空间字节数
+**		   : length - 初始化后 pbuf_custom 包含的“应用”负载数据长度
+**		   : type - 初始化后 pbuf_custom 类型
+**         : p - 需要初始化的 pbuf_custom 指针
+**         : payload_mem - 调用者提供的 pbuf_custom 的内存空间指针（包括应用负载数据和协议头数据） 
+**         : payload_mem_len - 调用者提供的 pbuf_custom 的内存空间长度
+** 输	 出: p->pbuf - 成功申请的 struct pbuf 指针
+**		   : NULL - 申请失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 struct pbuf *
 pbuf_alloced_custom(pbuf_layer l, u16_t length, pbuf_type type, struct pbuf_custom *p,
                     void *payload_mem, u16_t payload_mem_len)
@@ -367,6 +510,7 @@ pbuf_alloced_custom(pbuf_layer l, u16_t length, pbuf_type type, struct pbuf_cust
   void *payload;
   LWIP_DEBUGF(PBUF_DEBUG | LWIP_DBG_TRACE, ("pbuf_alloced_custom(length=%"U16_F")\n", length));
 
+  /* 如果传入的自定义缓冲区大小不够大，则直接返回 NULL */
   if (LWIP_MEM_ALIGN_SIZE(offset) + length > payload_mem_len) {
     LWIP_DEBUGF(PBUF_DEBUG | LWIP_DBG_LEVEL_WARNING, ("pbuf_alloced_custom(length=%"U16_F") buffer too short\n", length));
     return NULL;
@@ -398,6 +542,15 @@ pbuf_alloced_custom(pbuf_layer l, u16_t length, pbuf_type type, struct pbuf_cust
  *
  * @note Despite its name, pbuf_realloc cannot grow the size of a pbuf (chain).
  */
+/*********************************************************************************************************
+** 函数名称: pbuf_realloc
+** 功能描述: 收缩指定的 pbuf 应用负载空间长度到指定的值
+** 输	 入: p - 需要收缩的 pbuf 指针
+**		   : new_len - 收缩后的 pbuf 应用负载空间长度
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 pbuf_realloc(struct pbuf *p, u16_t new_len)
 {
@@ -408,6 +561,7 @@ pbuf_realloc(struct pbuf *p, u16_t new_len)
   LWIP_ASSERT("pbuf_realloc: p != NULL", p != NULL);
 
   /* desired length larger than current length? */
+  /* 当前版本不支持 pbuf 空间扩展功能 */
   if (new_len >= p->tot_len) {
     /* enlarging not yet supported */
     return;
@@ -420,7 +574,9 @@ pbuf_realloc(struct pbuf *p, u16_t new_len)
   /* first, step over any pbufs that should remain in the chain */
   rem_len = new_len;
   q = p;
+  
   /* should this pbuf be kept? */
+  /* 从 pbuf 链表头开始遍历，根据长度信息找到需要执行收缩操作的 pbuf 节点位置 */
   while (rem_len > q->len) {
     /* decrease remaining length by pbuf length */
     rem_len = (u16_t)(rem_len - q->len);
@@ -430,6 +586,7 @@ pbuf_realloc(struct pbuf *p, u16_t new_len)
     q = q->next;
     LWIP_ASSERT("pbuf_realloc: q != NULL", q != NULL);
   }
+  
   /* we have now reached the new last pbuf (in q) */
   /* rem_len == desired length for pbuf q */
 
@@ -437,10 +594,13 @@ pbuf_realloc(struct pbuf *p, u16_t new_len)
   /* (other types merely adjust their length fields */
   if (pbuf_match_allocsrc(q, PBUF_TYPE_ALLOC_SRC_MASK_STD_HEAP) && (rem_len != q->len)
 #if LWIP_SUPPORT_CUSTOM_PBUF
+      /* 因为用户自定的 pbuf 需要用户自己回收，所以我们不能对用户自定义的 pbuf 执行收缩操作 */
       && ((q->flags & PBUF_FLAG_IS_CUSTOM) == 0)
 #endif /* LWIP_SUPPORT_CUSTOM_PBUF */
      ) {
     /* reallocate and adjust the length of the pbuf that will be split */
+	/* 因为是从内存堆中申请的 pbuf，所以  pbuf 的 struct pbuf 结构和后面的负载数据空间是连续的
+	 * 所以 (u8_t *)q->payload - (u8_t *)q 计算后的结果等于“头部”长度 */
     q = (struct pbuf *)mem_trim(q, (mem_size_t)(((u8_t *)q->payload - (u8_t *)q) + rem_len));
     LWIP_ASSERT("mem_trim returned q == NULL", q != NULL);
   }
@@ -449,6 +609,7 @@ pbuf_realloc(struct pbuf *p, u16_t new_len)
   q->tot_len = q->len;
 
   /* any remaining pbufs in chain? */
+  /* 从原来的 pbuf 链表上把那些不需要的 pbuf 所占用的空间释放掉 */
   if (q->next != NULL) {
     /* free remaining pbufs in chain */
     pbuf_free(q->next);
@@ -469,6 +630,18 @@ pbuf_realloc(struct pbuf *p, u16_t new_len)
  * @return non-zero on failure, zero on success.
  *
  */
+/*********************************************************************************************************
+** 函数名称: pbuf_add_header_impl
+** 功能描述: 把指定的 pbuf 负载数据指针向前调整指定字节数，这样就可以把“隐藏”的协议头数据“放到”负载
+**         : 数据空间中，我们就可以通过 pbuf->payload 指针访问协议头数据了
+** 输	 入: p - 需要调整的 pbuf 指针
+**		   : header_size_increment - 要显示出来的协议头长度
+**         : force - 如果 pbuf 的 struct pbuf 和 payload 在地址上不连续，是否仍然调整 payload 指针位置
+** 输	 出: 0 - 执行成功
+**         : 1 - 执行失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static u8_t
 pbuf_add_header_impl(struct pbuf *p, size_t header_size_increment, u8_t force)
 {
@@ -495,8 +668,11 @@ pbuf_add_header_impl(struct pbuf *p, size_t header_size_increment, u8_t force)
   /* pbuf types containing payloads? */
   if (type_internal & PBUF_TYPE_FLAG_STRUCT_DATA_CONTIGUOUS) {
     /* set new payload pointer */
+    /* 如果 pbuf 的 struct pbuf 和 payload 在地址上连续，则根据需要添加的头部长度，调整 pbuf 的负载指针位置 */
     payload = (u8_t *)p->payload - header_size_increment;
     /* boundary check fails? */
+
+    /* 检查调整后的负载指针位置是否向前越界（即是否处于 struct pbuf 结构中）*/
     if ((u8_t *)payload < (u8_t *)p + SIZEOF_STRUCT_PBUF) {
       LWIP_DEBUGF( PBUF_DEBUG | LWIP_DBG_TRACE,
                    ("pbuf_add_header: failed as %p < %p (not enough space for new header size)\n",
@@ -547,6 +723,16 @@ pbuf_add_header_impl(struct pbuf *p, size_t header_size_increment, u8_t force)
  * @return non-zero on failure, zero on success.
  *
  */
+/*********************************************************************************************************
+** 函数名称: pbuf_add_header
+** 功能描述: 把指定的 pbuf 负载数据指针向前调整指定字节数，这样就可以通过 pbuf->payload 访问协议头数据了
+** 输	 入: p - 需要调整的 pbuf 指针
+**		   : header_size_increment - 要显示出来的协议头长度
+** 输	 出: 0 - 执行成功
+**         : 1 - 执行失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 u8_t
 pbuf_add_header(struct pbuf *p, size_t header_size_increment)
 {
@@ -557,6 +743,17 @@ pbuf_add_header(struct pbuf *p, size_t header_size_increment)
  * Same as @ref pbuf_add_header but does not check if 'header_size > 0' is allowed.
  * This is used internally only, to allow PBUF_REF for RX.
  */
+/*********************************************************************************************************
+** 函数名称: pbuf_add_header_force
+** 功能描述: 把指定的 pbuf 负载数据指针向前调整指定字节数，这样就可以通过 pbuf->payload 访问协议头数据了
+**         : 如果 pbuf 的 struct pbuf 和 payload 在地址上不连续，仍然调整 payload 指针位置
+** 输	 入: p - 需要调整的 pbuf 指针
+**		   : header_size_increment - 要显示出来的协议头长度
+** 输	 出: 0 - 执行成功
+**         : 1 - 执行失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 u8_t
 pbuf_add_header_force(struct pbuf *p, size_t header_size_increment)
 {
@@ -578,6 +775,17 @@ pbuf_add_header_force(struct pbuf *p, size_t header_size_increment)
  * @return non-zero on failure, zero on success.
  *
  */
+/*********************************************************************************************************
+** 函数名称: pbuf_remove_header
+** 功能描述: 把指定的 pbuf 负载数据指针向后调整指定字节数，这样就可以把协议头从 pbuf->payload 中移除
+**         : 这样接下来通过 pbuf->payload 指针访问的就是协议负载数据了
+** 输	 入: p - 需要调整的 pbuf 指针
+**		   : header_size_increment - 要隐藏的协议头长度
+** 输	 出: 0 - 执行成功
+**		   : 1 - 执行失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 u8_t
 pbuf_remove_header(struct pbuf *p, size_t header_size_decrement)
 {
@@ -612,6 +820,18 @@ pbuf_remove_header(struct pbuf *p, size_t header_size_decrement)
   return 0;
 }
 
+/*********************************************************************************************************
+** 函数名称: pbuf_header_impl
+** 功能描述: 把指定的 pbuf 的负载指针（pbuf->payload）位置向前（显示协议头数据，header_size_increment 大于零）
+**         : 或者向后（隐藏协议头数据，header_size_increment 小于零）调整指定字节数
+** 输	 入: p - 需要调整的 pbuf 指针
+**		   : header_size_increment - 要调整的协议头长度
+**         : force - 如果 pbuf 的 struct pbuf 和 payload 在地址上不连续，是否仍然调整 payload 指针位置
+** 输	 出: 0 - 执行成功
+**		   : 1 - 执行失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static u8_t
 pbuf_header_impl(struct pbuf *p, s16_t header_size_increment, u8_t force)
 {
@@ -642,6 +862,18 @@ pbuf_header_impl(struct pbuf *p, s16_t header_size_increment, u8_t force)
  * @return non-zero on failure, zero on success.
  *
  */
+/*********************************************************************************************************
+** 函数名称: pbuf_header
+** 功能描述: 把指定的 pbuf 的负载指针（pbuf->payload）位置向前（显示协议头数据，header_size_increment 大于零）
+**		   : 或者向后（隐藏协议头数据，header_size_increment 小于零）调整指定字节数
+** 注     释: 如果 pbuf 的 struct pbuf 和 payload 在地址上不连续，则不调整 payload 指针位置
+** 输	 入: p - 需要调整的 pbuf 指针
+**		   : header_size_increment - 要调整的协议头长度
+** 输	 出: 0 - 执行成功
+**		   : 1 - 执行失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 u8_t
 pbuf_header(struct pbuf *p, s16_t header_size_increment)
 {
@@ -652,6 +884,18 @@ pbuf_header(struct pbuf *p, s16_t header_size_increment)
  * Same as pbuf_header but does not check if 'header_size > 0' is allowed.
  * This is used internally only, to allow PBUF_REF for RX.
  */
+/*********************************************************************************************************
+** 函数名称: pbuf_header_force
+** 功能描述: 把指定的 pbuf 的负载指针（pbuf->payload）位置向前（显示协议头数据，header_size_increment 大于零）
+**		   : 或者向后（隐藏协议头数据，header_size_increment 小于零）调整指定字节数
+** 注	 释: 如果 pbuf 的 struct pbuf 和 payload 在地址上不连续，则仍然调整 payload 指针位置
+** 输	 入: p - 需要调整的 pbuf 指针
+**		   : header_size_increment - 要调整的协议头长度
+** 输	 出: 0 - 执行成功
+**		   : 1 - 执行失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 u8_t
 pbuf_header_force(struct pbuf *p, s16_t header_size_increment)
 {
@@ -667,11 +911,21 @@ pbuf_header_force(struct pbuf *p, s16_t header_size_increment)
  *                   takes an u16_t not s16_t!
  * @return the new head pbuf
  */
+/*********************************************************************************************************
+** 函数名称: pbuf_free_header
+** 功能描述: 从指定的 pbuf 的链表头部开始，移除指定字节数的内存空间，并释放空闲的 pbuf
+** 输	 入: q - 需要调整的 pbuf 指针
+**		   : size - 要释放的空间字节数
+** 输	 出: p - 移除指定空间后的 pbuf 指针
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 struct pbuf *
 pbuf_free_header(struct pbuf *q, u16_t size)
 {
   struct pbuf *p = q;
   u16_t free_left = size;
+  
   while (free_left && p) {
     if (free_left >= p->len) {
       struct pbuf *f = p;
@@ -721,6 +975,25 @@ pbuf_free_header(struct pbuf *q, u16_t size)
  * 1->1->1 becomes .......
  *
  */
+/*********************************************************************************************************
+** 函数名称: pbuf_free
+** 功能描述: 从指定的 pbuf or pbuf chain 链表表头位置开始尝试回收空闲 pbuf 成员
+** 注     释: 1. 在 pbuf chain 中，因为所有的 pbuf 都是通过 struct pbuf 中的单向链表链接起来的且所有前驱
+**  	   :    都指向和他相邻的后驱，所以，非表头的 pbuf 成员引用计数永远不可能为 0，所以在释放 pbuf 的
+**  	   :    时候只需要检查链表表头成员即可，如果表头成员被释放（引用计数为 0），然后把表头向后移动
+**         : 2. 如果一个 pbuf chain 没有被其他模块引用，那么通过                   pbuf_cat 连接起来的 pbuf chain 上所有非
+**         :    表头 pbuf 的引用计数都是 1（因为刚申请的 pbuf 引用计数默认为 1，而 pbuf_cat 不会增加 pbuf
+**         :    的引用计数），所以在执行这个函数的时候会回收 pbuf chain 链表上的所有成员，如果这个 pbuf
+**         :    chain 被其他模块引用了（链表头被被其他模块引用），那么在本次调用 pbuf_free 的时候是不会
+**         :    释放所有 pbuf 成员，而是在其他的、最后一个引用模块中调用 pbuf_free 接口的时候被释放的
+**         : 3. 如果一个 pbuf chain 没有被其他模块引用，那么通过                   pbuf_chain 连接起来的 pbuf chain 中除了
+**         :    连接点后端的 pbuf 成员引用计数为 2，其他所有的 pbuf 成员引用计数仍然为 1，所以调用 pbuf_free
+**         :    后，在 pbuf_chain 连接点前段的所有 pbuf 成员都会被回收
+** 输	 入: p - 需要回收的 pbuf chain 指针
+** 输	 出: count - 从 pbuf chain 中释放的 pbuf 成员个数
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 u8_t
 pbuf_free(struct pbuf *p)
 {
@@ -752,9 +1025,14 @@ pbuf_free(struct pbuf *p)
     /* all pbufs in a chain are referenced at least once */
     LWIP_ASSERT("pbuf_free: p->ref > 0", p->ref > 0);
     /* decrease reference count (number of pointers to pbuf) */
-    ref = --(p->ref);
-    SYS_ARCH_UNPROTECT(old_level);
+	/* */
+	ref = --(p->ref);
+
+	SYS_ARCH_UNPROTECT(old_level);
     /* this pbuf is no longer referenced to? */
+	/* 在 pbuf chain 中，因为所有的 pbuf 都是通过 struct pbuf 中的单向链表链接起来的且所有前驱
+ 	 * 都指向和他相邻的后驱，所以，非表头的 pbuf 引用计数永远不可能为 0，所以在释放 pbuf 的时候
+ 	 * 只需要检查链表表头成员即可，如果表头成员被释放（引用计数为 0），然后把表头向后移动 */
     if (ref == 0) {
       /* remember next pbuf in chain for next iteration */
       q = p->next;
@@ -762,6 +1040,8 @@ pbuf_free(struct pbuf *p)
       alloc_src = pbuf_get_allocsrc(p);
 #if LWIP_SUPPORT_CUSTOM_PBUF
       /* is this a custom pbuf? */
+      /* 如果当前 pbuf 是用户自定义的 pbuf，则通过用户设置的回收内存函数 pbuf->custom_free_function 
+       * 来回收这个 pbuf_custom 结构所占用的内存空间 */
       if ((p->flags & PBUF_FLAG_IS_CUSTOM) != 0) {
         struct pbuf_custom *pc = (struct pbuf_custom *)p;
         LWIP_ASSERT("pc->custom_free_function != NULL", pc->custom_free_function != NULL);
@@ -769,6 +1049,8 @@ pbuf_free(struct pbuf *p)
       } else
 #endif /* LWIP_SUPPORT_CUSTOM_PBUF */
       {
+		/* 如果当前 pbuf 不是用户自定义的，则根据其类型分别调用对应的内存回收接口 */
+	  
         /* is this a pbuf from the pool? */
         if (alloc_src == PBUF_TYPE_ALLOC_SRC_MASK_STD_MEMP_PBUF_POOL) {
           memp_free(MEMP_PBUF_POOL, p);
@@ -785,12 +1067,14 @@ pbuf_free(struct pbuf *p)
       }
       count++;
       /* proceed to next pbuf */
+	  /* pbuf chain 表头成员已经被释放，把表头指针向后移动一个位置 */
       p = q;
       /* p->ref > 0, this pbuf is still referenced to */
       /* (and so the remaining pbufs in chain as well) */
     } else {
       LWIP_DEBUGF( PBUF_DEBUG | LWIP_DBG_TRACE, ("pbuf_free: %p has ref %"U16_F", ending here.\n", (void *)p, (u16_t)ref));
       /* stop walking through the chain */
+	  /* 如果 pbuf chain 当前表头成员引用计数不是 0，则表示 pbuf chain 中没有需要释放的 pbuf 成员，则直接退出 */
       p = NULL;
     }
   }
@@ -805,6 +1089,14 @@ pbuf_free(struct pbuf *p)
  * @param p first pbuf of chain
  * @return the number of pbufs in a chain
  */
+/*********************************************************************************************************
+** 函数名称: pbuf_clen
+** 功能描述: 统计指定的 pbuf chain 链表长度，即有效的 pbuf 成员个数
+** 输	 入: p - 需要统计的 pbuf  指针
+** 输	 出: len - pbuf chain 的成员个数
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 u16_t
 pbuf_clen(const struct pbuf *p)
 {
@@ -825,6 +1117,14 @@ pbuf_clen(const struct pbuf *p)
  * @param p pbuf to increase reference counter of
  *
  */
+/*********************************************************************************************************
+** 函数名称: pbuf_ref
+** 功能描述: 把指定的 pbuf 成员引用计数加 1
+** 输	 入: p - 需要操作的 pbuf	指针
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 pbuf_ref(struct pbuf *p)
 {
@@ -849,6 +1149,18 @@ pbuf_ref(struct pbuf *p)
  *
  * @see pbuf_chain()
  */
+/*********************************************************************************************************
+** 函数名称: pbuf_cat
+** 功能描述: 把两个指定的 pbuf chain 合并成一个 pbuf chain，即把指定的尾部方向 pbuf chain 链表链接到
+**         : 指定的 pbuf chain 头部方向链表上
+** 注     释: 比较重要的一个信息是，在执行 pbuf_cat 时并没有增加 pbuf 的引用计数，而 pbuf 在申请后默认
+**         : 引用计数值为 1，所以通过 pbuf_cat            链接在一起的 pbuf chain 的 pbuf 成员引用计数都为 1
+** 输	 入: h - 合并后处于链表头的 pbuf chain 指针
+**         : t - 合并后处于链表尾的 pbuf chain 指针
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 pbuf_cat(struct pbuf *h, struct pbuf *t)
 {
@@ -858,20 +1170,27 @@ pbuf_cat(struct pbuf *h, struct pbuf *t)
              ((h != NULL) && (t != NULL)), return;);
 
   /* proceed to last pbuf of chain */
+  /* 调整头部方向的 pbuf chain 中每个 pbuf 成员（但是不包括链表尾部成员）的 tot_len 字段变量值 */
   for (p = h; p->next != NULL; p = p->next) {
     /* add total length of second chain to all totals of first chain */
     p->tot_len = (u16_t)(p->tot_len + t->tot_len);
   }
+  
   /* { p is last pbuf of first h chain, p->next == NULL } */
   LWIP_ASSERT("p->tot_len == p->len (of last pbuf in chain)", p->tot_len == p->len);
   LWIP_ASSERT("p->next == NULL", p->next == NULL);
   /* add total length of second chain to last pbuf total of first chain */
+  /* 调整头部方向的 pbuf chain 链表尾部成员的 tot_len 字段变量值 */
   p->tot_len = (u16_t)(p->tot_len + t->tot_len);
+
   /* chain last pbuf of head (p) with first of tail (t) */
+  /* 把尾部方向的 pbuf chain 链表链接到头部方向的 pbuf chain 中 */
   p->next = t;
+  
   /* p->next now references t, but the caller will drop its reference to t,
    * so netto there is no change to the reference count of t.
    */
+  /* 因为调用这个接口的调用者自己会增加 t pbuf 的引用计数值，所以这个位置不需要显示增加了 */
 }
 
 /**
@@ -891,12 +1210,26 @@ pbuf_cat(struct pbuf *h, struct pbuf *t)
  * The ->ref field of the first pbuf of the tail chain is adjusted.
  *
  */
+/*********************************************************************************************************
+** 函数名称: pbuf_chain
+** 功能描述: 把两个指定的 pbuf chain 合并成一个 pbuf chain，即把指定的尾部方向 pbuf chain 链表链接到
+**         : 指定的 pbuf chain 头部方向链表上，并把连接点后端 pbuf 的引用计数加 1，又因为 pbuf 在申请
+**         : 后默认引用计数值为 1，所以连接点后端 pbuf 的引用计数至少为 2
+** 输	 入: h - 合并后处于链表头的 pbuf chain 指针
+**         : t - 合并后处于链表尾的 pbuf chain 指针
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 pbuf_chain(struct pbuf *h, struct pbuf *t)
 {
   pbuf_cat(h, t);
+  
   /* t is now referenced by h */
+  /* 把两个 pbuf/pbuf chain 连接点后端的 pbuf 引用计数加 1 */
   pbuf_ref(t);
+  
   LWIP_DEBUGF(PBUF_DEBUG | LWIP_DBG_TRACE, ("pbuf_chain: %p references %p\n", (void *)h, (void *)t));
 }
 
@@ -908,6 +1241,16 @@ pbuf_chain(struct pbuf *h, struct pbuf *t)
  * @return remainder of the pbuf chain, or NULL if it was de-allocated.
  * @note May not be called on a packet queue.
  */
+/*********************************************************************************************************
+** 函数名称: pbuf_dechain
+** 功能描述: 从指定的 pbuf chain 链表头部拿下一个 pbuf 成员，并尝试释放以 second pbuf 为表头的 pbuf chain
+**         : 如果有 pbuf 成员被释放，则返回 NULL，如果没有释放任何 pbuf 成员，则返回 second pbuf 指针
+** 输	 入: p - 提供 pbuf 的 pbuf/pbuf chain 指针
+** 输	 出: q - 拿出一个 pbuf 后、余下的 pbuf/pbuf chain 指针
+**         : NULL - 已经没有剩余的 pbuf 了
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 struct pbuf *
 pbuf_dechain(struct pbuf *p)
 {
@@ -927,6 +1270,9 @@ pbuf_dechain(struct pbuf *p)
     p->tot_len = p->len;
     /* q is no longer referenced by p, free it */
     LWIP_DEBUGF(PBUF_DEBUG | LWIP_DBG_TRACE, ("pbuf_dechain: unreferencing %p\n", (void *)q));
+
+	/* 以为通过  pbuf_chain 连接起来的单体 pbuf          成员，在 pbuf     chain 中所有非表头的        pbuf 引用计数至少为     2
+	 * 所以这个位置正常情况下都不会有 pbuf 成员空间被释放 */
     tail_gone = pbuf_free(q);
     if (tail_gone > 0) {
       LWIP_DEBUGF(PBUF_DEBUG | LWIP_DBG_TRACE,
@@ -957,6 +1303,17 @@ pbuf_dechain(struct pbuf *p)
  *         ERR_ARG if one of the pbufs is NULL or p_to is not big
  *                 enough to hold p_from
  */
+/*********************************************************************************************************
+** 函数名称: pbuf_copy
+** 功能描述: 把指定的源 pbuf/pbuf chain 中所有“负载空间内容”复制到指定的目的 pbuf/pbuf chain 中
+** 注     释: 复制的时候，不会复制被隐藏的协议头数据
+** 输	 入: p_to - 目的 pbuf/pbuf chain 指针
+**         : p_from - 源 pbuf/pbuf chain 指针
+** 输	 出: ERR_OK - 复制成功
+**         : ERR_ARG/ERR_VAL - 复制失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 err_t
 pbuf_copy(struct pbuf *p_to, const struct pbuf *p_from)
 {
@@ -970,8 +1327,11 @@ pbuf_copy(struct pbuf *p_to, const struct pbuf *p_from)
              (p_from != NULL) && (p_to->tot_len >= p_from->tot_len)), return ERR_ARG;);
 
   /* iterate through pbuf chain */
+  /* 分别遍历到 p_from（pbuf chain）链表上的每一个 pbuf 成员，然后复制每一个成员数据到 p_to 中 */
   do {
     /* copy one part of the original chain */
+    /* 以为 pbuf chain 链表中的每一个 pbuf 成员地址空间是不连续的，所以我们在从 p_from 复制数据到
+	 * p_to 的时候，需要取二者中“小”的值 */
     if ((p_to->len - offset_to) >= (p_from->len - offset_from)) {
       /* complete current p_from fits into current p_to */
       len = p_from->len - offset_from;
@@ -979,16 +1339,21 @@ pbuf_copy(struct pbuf *p_to, const struct pbuf *p_from)
       /* current p_from does not fit into current p_to */
       len = p_to->len - offset_to;
     }
+	
     MEMCPY((u8_t *)p_to->payload + offset_to, (u8_t *)p_from->payload + offset_from, len);
     offset_to += len;
     offset_from += len;
     LWIP_ASSERT("offset_to <= p_to->len", offset_to <= p_to->len);
     LWIP_ASSERT("offset_from <= p_from->len", offset_from <= p_from->len);
+
+	/* 如果源 pbuf chain 正在操作的 pbuf 数据已经全部被复制完成，则更新到下一个 pbuf 成员位置 */
     if (offset_from >= p_from->len) {
       /* on to next p_from (if any) */
       offset_from = 0;
       p_from = p_from->next;
     }
+
+	/* 如果目标 pbuf chain 正在操作的 pbuf 空间已经存满了，则更新到下一个 pbuf 成员位置 */
     if (offset_to == p_to->len) {
       /* on to next p_to (if any) */
       offset_to = 0;
@@ -996,11 +1361,14 @@ pbuf_copy(struct pbuf *p_to, const struct pbuf *p_from)
       LWIP_ERROR("p_to != NULL", (p_to != NULL) || (p_from == NULL), return ERR_ARG;);
     }
 
+	/* 判断是否已经遍历到 p_from（pbuf chain）链表的最后一个 pbuf */
     if ((p_from != NULL) && (p_from->len == p_from->tot_len)) {
       /* don't copy more than one packet! */
       LWIP_ERROR("pbuf_copy() does not allow packet queues!",
                  (p_from->next == NULL), return ERR_VAL;);
     }
+	
+	/* 判断是否已经遍历到 p_to（pbuf chain）链表的最后一个 pbuf */
     if ((p_to != NULL) && (p_to->len == p_to->tot_len)) {
       /* don't copy more than one packet! */
       LWIP_ERROR("pbuf_copy() does not allow packet queues!",
@@ -1023,6 +1391,17 @@ pbuf_copy(struct pbuf *p_to, const struct pbuf *p_from)
  * @param offset offset into the packet buffer from where to begin copying len bytes
  * @return the number of bytes copied, or 0 on failure
  */
+/*********************************************************************************************************
+** 函数名称: pbuf_copy_partial
+** 功能描述: 从指定的 pbuf/pbuf chain 的负载空间指定位置开始，复制指定长度的数据到用户提供的缓冲区中
+** 输	 入: buf - 提供数据的 pbuf/pbuf chain 指针
+**		   : dataptr - 用户空间缓冲区地址
+**		   : len - 需要复制的数据长度
+**		   : offset - 复制 pbuf 负载数据的偏移位置
+** 输	 出: copied_total - 成功复制的数据字节数
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 u16_t
 pbuf_copy_partial(const struct pbuf *buf, void *dataptr, u16_t len, u16_t offset)
 {
@@ -1035,6 +1414,7 @@ pbuf_copy_partial(const struct pbuf *buf, void *dataptr, u16_t len, u16_t offset
   LWIP_ERROR("pbuf_copy_partial: invalid dataptr", (dataptr != NULL), return 0;);
 
   /* Note some systems use byte copy if dataptr or one of the pbuf payload pointers are unaligned. */
+  /* 从指定的 pbuf/pbuf chain 表头开始遍历链表中的 pbuf 成员 */
   for (p = buf; len != 0 && p != NULL; p = p->next) {
     if ((offset != 0) && (offset >= p->len)) {
       /* don't copy from this buffer -> on to the next */
@@ -1070,6 +1450,24 @@ pbuf_copy_partial(const struct pbuf *buf, void *dataptr, u16_t len, u16_t offset
  * @param offset offset into the packet buffer from where to begin copying len bytes
  * @return the number of bytes copied, or 0 on failure
  */
+/*********************************************************************************************************
+** 函数名称: pbuf_get_contiguous
+** 功能描述: 从指定的 pbuf/pbuf chain 的不连续的负载空间的指定位置开始，复制指定长度的数据到用户提供的
+**         : 缓冲区中，并返回最终复制后数据缓冲区起始地址，执行完这个函数后，我们需要的数据在内存地址
+**         : 空间中是连续的
+** 注     释: 如果我们需要复制的所有数据都在 pbuf/pbuf chain 的某个 pbuf 上，为了执行效率，则不会从 pbuf
+**         : 中把数据复制到用户提供的缓冲区中，只有在我们需要的数据跨越多个 pbuf 的时候，才会把这些分散
+**         : 的数据统一复制到用户提供的连续缓冲区中
+** 输	 入: p - 提供数据的 pbuf/pbuf chain 指针
+**		   : buffer - 用户空间缓冲区地址
+**		   : bufsize - 用户空间缓冲区长度
+**		   : len - 需要复制的数据字节数
+**         : offset - 从 pbuf/pbuf chain 负载空间复制数据的起始位置
+** 输	 出: buffer - 复制数据后的缓冲区起始地址
+**         : NULL - 复制失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void *
 pbuf_get_contiguous(const struct pbuf *p, void *buffer, size_t bufsize, u16_t len, u16_t offset)
 {
@@ -1110,31 +1508,49 @@ pbuf_get_contiguous(const struct pbuf *p, void *buffer, size_t bufsize, u16_t le
  * @param p the pbuf queue to be split
  * @param rest pointer to store the remainder (after the first 64K)
  */
+/*********************************************************************************************************
+** 函数名称: pbuf_split_64k
+** 功能描述: 从指定的 pbuf chain 链表头开始，以 64K 为边界分割 pbuf chain 链表，使分割后的头部 pbuf chain
+**         : 链表负载总空间长度不超过 64K，并返回剩余的、超过 64K 的那部分 pbuf chain
+** 输	 入: buf - 需要分割的 pbuf chain 指针
+** 输	 出: rest - 如果 pbuf chain 的总负载空间大于 64K，则返回分割后剩余部分 pbuf chain 指针
+**         : NULL - 表示 pbuf chain 的总负载空间不大于 64K，所以分割后没有剩余 pbuf chain
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void pbuf_split_64k(struct pbuf *p, struct pbuf **rest)
 {
   *rest = NULL;
+
+  /* 遍历 pbuf/pbuf chain 链表，但是不会处理链表上的最后一个 pbuf 成员 */
   if ((p != NULL) && (p->next != NULL)) {
     u16_t tot_len_front = p->len;
     struct pbuf *i = p;
     struct pbuf *r = p->next;
 
     /* continue until the total length (summed up as u16_t) overflows */
-    while ((r != NULL) && ((u16_t)(tot_len_front + r->len) >= tot_len_front)) {
+	/* 从 pbuf chain 链表头依次向后遍历并计算已经遍历的 pbuf chain 中负载空间总长度
+	 * 直到负载空间总长度累计到 64K 边界时结束 */
+	while ((r != NULL) && ((u16_t)(tot_len_front + r->len) >= tot_len_front)) {
       tot_len_front = (u16_t)(tot_len_front + r->len);
       i = r;
       r = r->next;
     }
+	
     /* i now points to last packet of the first segment. Set next
        pointer to NULL */
     i->next = NULL;
 
     if (r != NULL) {
       /* Update the tot_len field in the first part */
+	  /* 如果我们指定的 pbuf chain 链表被分割成了两部分，则在分割后需要更新头部链表中 
+	   * 每个 pbuf 结构中的 tot_len 字段值 */
       for (i = p; i != NULL; i = i->next) {
         i->tot_len = (u16_t)(i->tot_len - r->tot_len);
         LWIP_ASSERT("tot_len/len mismatch in last pbuf",
                     (i->next != NULL) || (i->tot_len == i->len));
       }
+	  
       if (p->flags & PBUF_FLAG_TCP_FIN) {
         r->flags |= PBUF_FLAG_TCP_FIN;
       }
@@ -1148,6 +1564,17 @@ void pbuf_split_64k(struct pbuf *p, struct pbuf **rest)
 #endif /* LWIP_TCP && TCP_QUEUE_OOSEQ && LWIP_WND_SCALE */
 
 /* Actual implementation of pbuf_skip() but returning const pointer... */
+/*********************************************************************************************************
+** 函数名称: pbuf_skip_const
+** 功能描述: 从指定的 pbuf/pbuf chain 中的负载空间中，找到包含指定偏移量的 pbuf 以及偏移量的余数部分
+**         : 所谓的偏移量余数部分指的是通过我们指定的偏移量找到 pbuf 之后，剩余的在 pbuf 内的偏移量
+** 注     释: 这个函数返回的 pbuf 指针“是” const 类型
+** 输	 入: in - 要操作的 pbuf/pbuf chain 指针
+**		   : in_offset - 从 pbuf/pbuf chain 头部开始计算，需要跳过的负载空间偏移量
+** 输	 出: out_offset - 偏移量的余数部分
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static const struct pbuf *
 pbuf_skip_const(const struct pbuf *in, u16_t in_offset, u16_t *out_offset)
 {
@@ -1155,10 +1582,13 @@ pbuf_skip_const(const struct pbuf *in, u16_t in_offset, u16_t *out_offset)
   const struct pbuf *q = in;
 
   /* get the correct pbuf */
+  /* 从 pbuf/pbuf chain 链表头开始，找到负载空间偏移量为 in_offset 的 pbuf 位置 */
   while ((q != NULL) && (q->len <= offset_left)) {
     offset_left = (u16_t)(offset_left - q->len);
     q = q->next;
   }
+
+  /* 返回在找到的 pbuf 内，负载偏移量字节数 */
   if (out_offset != NULL) {
     *out_offset = offset_left;
   }
@@ -1174,6 +1604,17 @@ pbuf_skip_const(const struct pbuf *in, u16_t in_offset, u16_t *out_offset)
  * @param out_offset resulting offset in the returned pbuf
  * @return the pbuf in the queue where the offset is
  */
+/*********************************************************************************************************
+** 函数名称: pbuf_skip
+** 功能描述: 从指定的 pbuf/pbuf chain 中的负载空间中，找到包含指定偏移量的 pbuf 以及偏移量的余数部分
+**		   : 所谓的偏移量余数部分指的是通过我们指定的偏移量找到 pbuf 之后，剩余的在 pbuf 内的偏移量
+** 注     释: 这个函数返回的 pbuf 指针“不是” const 类型
+** 输	 入: in - 要操作的 pbuf/pbuf chain 指针
+**		   : in_offset - 从 pbuf/pbuf chain 头部开始计算，需要跳过的负载空间偏移量
+** 输	 出: out_offset - 偏移量的余数部分
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 struct pbuf *
 pbuf_skip(struct pbuf *in, u16_t in_offset, u16_t *out_offset)
 {
@@ -1192,6 +1633,17 @@ pbuf_skip(struct pbuf *in, u16_t in_offset, u16_t *out_offset)
  *
  * @return ERR_OK if successful, ERR_MEM if the pbuf is not big enough
  */
+/*********************************************************************************************************
+** 函数名称: pbuf_take
+** 功能描述: 把用户缓冲区中的数据复制并填充到指定的 pbuf/pbuf chain 负载空间中
+** 输	 入: buf - 用来存储用户数据的 pbuf/ pbuf chain 指针
+**		   : dataptr - 需要复制到 pbuf/pbuf chain 中的用户数据缓冲区地址
+**         : len -  需要复制到 pbuf/pbuf chain 中的用户数据长度
+** 输	 出: ERR_OK - 复制成功
+**         : ERR_ARG/ERR_MEM - 复制失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/ 
 err_t
 pbuf_take(struct pbuf *buf, const void *dataptr, u16_t len)
 {
@@ -1209,6 +1661,7 @@ pbuf_take(struct pbuf *buf, const void *dataptr, u16_t len)
   }
 
   /* Note some systems use byte copy if dataptr or one of the pbuf payload pointers are unaligned. */
+  /* 从 pbuf/pbuf chain 链表头开始查找空闲 pbuf 用来存储用户数据 */
   for (p = buf; total_copy_len != 0; p = p->next) {
     LWIP_ASSERT("pbuf_take: invalid pbuf", p != NULL);
     buf_copy_len = total_copy_len;
@@ -1236,6 +1689,18 @@ pbuf_take(struct pbuf *buf, const void *dataptr, u16_t len)
  *
  * @return ERR_OK if successful, ERR_MEM if the pbuf is not big enough
  */
+/*********************************************************************************************************
+** 函数名称: pbuf_take_at
+** 功能描述: 把用户缓冲区中的数据复制并填充到指定的 pbuf/pbuf chain 负载空间的指定偏移量处的内存空间中
+** 输	 入: buf - 用来存储用户数据的 pbuf/ pbuf chain 指针
+**		   : dataptr - 需要复制到 pbuf/pbuf chain 中的用户数据缓冲区地址
+**		   : len -	需要复制到 pbuf/pbuf chain 中的用户数据长度
+**         : offset - 用户数据需要放到 pbuf/pbuf chain 负载空间的偏移量位置
+** 输	 出: ERR_OK - 复制成功
+**		   : ERR_ARG/ERR_MEM - 复制失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/ 
 err_t
 pbuf_take_at(struct pbuf *buf, const void *dataptr, u16_t len, u16_t offset)
 {
@@ -1274,6 +1739,18 @@ pbuf_take_at(struct pbuf *buf, const void *dataptr, u16_t len, u16_t offset)
  * @return a new, single pbuf (p->next is NULL)
  *         or the old pbuf if allocation fails
  */
+/*********************************************************************************************************
+** 函数名称: pbuf_coalesce
+** 功能描述: 把一个负载空间不连续的 pbuf chain 中的“所有空间内容”复制到新申请的、地址连续的 pbuf 中
+**         : 在复制完成后，把原来的那个负载空间不连续的 pbuf chain 释放掉，这个函数的效果等同于把负载
+**         : 空间地址不连续的 pbuf/pbuf chain 转换成一个负载空间地址连续的 pbuf/pbuf chain
+** 输	 入: p - 需要被转换的 pbuf/ pbuf chain 指针，负载空间不包含协议头数据
+**		   : layer - 转换后的 pbuf/ pbuf chain 需要为协议头预留的内存空间字节数
+** 输	 出: q - 转换后的 pbuf/ pbuf chain 指针
+**		   : NULL - 转换失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 struct pbuf *
 pbuf_coalesce(struct pbuf *p, pbuf_layer layer)
 {
@@ -1281,6 +1758,9 @@ pbuf_coalesce(struct pbuf *p, pbuf_layer layer)
   if (p->next == NULL) {
     return p;
   }
+
+  /* 申请一个 PBUF_RAM 类型的 pbuf，然后把 p 指向的 pbuf/pbuf chain 所有负载空间内容
+   * 都复制到新申请的这个 pbuf 中 */
   q = pbuf_clone(layer, PBUF_RAM, p);
   if (q == NULL) {
     /* @todo: what do we do now? */
@@ -1302,6 +1782,19 @@ pbuf_coalesce(struct pbuf *p, pbuf_layer layer)
  *
  * @return a new pbuf or NULL if allocation fails
  */
+/*********************************************************************************************************
+** 函数名称: pbuf_clone
+** 功能描述: 申请一个和指定的 pbuf/pbuf chain 属性相同的 pbuf/pbuf chain，并把指定的 pbuf/pbuf chain 的
+**         : 所有负载空间内容复制到新申请的这个 pbuf/pbuf chain 中，并返回新申请的 pbuf/pbuf chain 指针
+** 注     释: 克隆的时候，不会复制被隐藏的协议头数据
+** 输	 入: layer - 指定 pbuf/pbuf chain 的协议头空间字节数
+**		   : type - 指定 pbuf/pbuf chain 类型
+**		   : p - 需要克隆的 pbuf/pbuf chain 指针
+** 输	 出: q - 复制成功后新的 pbuf/pbuf chain 指针
+**		   : NULL - 复制失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 struct pbuf *
 pbuf_clone(pbuf_layer layer, pbuf_type type, struct pbuf *p)
 {
@@ -1330,6 +1823,19 @@ pbuf_clone(pbuf_layer layer, pbuf_type type, struct pbuf *p)
  * @return ERR_OK if successful, another error if the data does not fit
  *         within the (first) pbuf (no pbuf queues!)
  */
+/*********************************************************************************************************
+** 函数名称: pbuf_fill_chksum
+** 功能描述: 把指定长度的用户数据复制到指定 pbuf 成员负载地址空间的指定偏移量处，并更新校验和的值
+** 输	 入: p - 存储用户数据的 pbuf 指针
+**		   : start_offset - 表示存储用户数据的空间在 pbuf 负载空间中的偏移量
+**		   : dataptr - 用户数据缓冲区地址
+**         : len - 用户数据长度
+** 输	 出: chksum  - 上一次的校验和，在本次复制完成后，需要更新这个校验和的值
+**		   : ERR_OK  - 复制成功
+**		   : ERR_ARG - 复制失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 err_t
 pbuf_fill_chksum(struct pbuf *p, u16_t start_offset, const void *dataptr,
                  u16_t len, u16_t *chksum)
@@ -1351,9 +1857,12 @@ pbuf_fill_chksum(struct pbuf *p, u16_t start_offset, const void *dataptr,
   if ((start_offset & 1) != 0) {
     copy_chksum = SWAP_BYTES_IN_WORD(copy_chksum);
   }
+
+  /* 累加数据校验和值 */
   acc = *chksum;
   acc += copy_chksum;
   *chksum = FOLD_U32T(acc);
+  
   return ERR_OK;
 }
 #endif /* LWIP_CHECKSUM_ON_COPY */
@@ -1367,6 +1876,16 @@ pbuf_fill_chksum(struct pbuf *p, u16_t start_offset, const void *dataptr,
  * @param offset offset into p of the byte to return
  * @return byte at an offset into p OR ZERO IF 'offset' >= p->tot_len
  */
+/*********************************************************************************************************
+** 函数名称: pbuf_get_at
+** 功能描述: 读取指定的 pbuf/pbuf chain 的负载地址空间的指定偏移量处的字节数据内容
+** 注     释: 如果读取失败，则默认表示读回来的数据是 0
+** 输	 入: p - 要读取的 pbuf/pbuf chain 指针
+**		   : offset - 要读取的字节数据在 pbuf/pbuf chain 负载地址空间中的偏移量
+** 输	 出: ret - 读取到的字节数据内容
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 u8_t
 pbuf_get_at(const struct pbuf *p, u16_t offset)
 {
@@ -1385,6 +1904,16 @@ pbuf_get_at(const struct pbuf *p, u16_t offset)
  * @param offset offset into p of the byte to return
  * @return byte at an offset into p [0..0xFF] OR negative if 'offset' >= p->tot_len
  */
+/*********************************************************************************************************
+** 函数名称: pbuf_try_get_at
+** 功能描述: 尝试读取指定的 pbuf/pbuf chain 的负载地址空间的指定偏移量处的字节数据内容
+** 输	 入: p - 要读取的 pbuf/pbuf chain 指针
+**		   : offset - 要读取的字节数据在 pbuf/pbuf chain 负载地址空间中的偏移量
+** 输	 出: int - 读取到的字节数据内容
+**         : -1  - 读取失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 int
 pbuf_try_get_at(const struct pbuf *p, u16_t offset)
 {
@@ -1407,6 +1936,16 @@ pbuf_try_get_at(const struct pbuf *p, u16_t offset)
  * @param offset offset into p of the byte to write
  * @param data byte to write at an offset into p
  */
+/*********************************************************************************************************
+** 函数名称: pbuf_put_at
+** 功能描述: 向指定的 pbuf/pbuf chain 的负载地址空间的指定偏移量处写入指定的字节数据内容
+** 输	 入: p - 要写的 pbuf/pbuf chain 指针
+**		   : offset - 要写的字节数据在 pbuf/pbuf chain 负载地址空间中的偏移量
+**         : data - 要写的字节数据内容
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 pbuf_put_at(struct pbuf *p, u16_t offset, u8_t data)
 {
@@ -1430,6 +1969,20 @@ pbuf_put_at(struct pbuf *p, u16_t offset, u8_t data)
  * @return zero if equal, nonzero otherwise
  *         (0xffff if p is too short, diffoffset+1 otherwise)
  */
+/*********************************************************************************************************
+** 函数名称: pbuf_memcmp
+** 功能描述: 把指定长度的用户数据和指定的 pbuf/pbuf chain 中指定偏移量的负载地址空间中的内容作比较
+**         : 并返回比较结果
+** 输	 入: p - 要比较的 pbuf/pbuf chain 指针
+**		   : offset - 要比较的数据在 pbuf/pbuf chain 负载地址空间中的偏移量
+**		   : s2 - 要比较的用户数据缓存地址
+**         : n - 要比较的用户数据长度
+** 输	 出: 0 - 数据内容相同
+**         : 0 < x < 0xFFFF - 不同的数据在用户缓冲中的索引值
+**         : 0xFFFF - 可能数据不同，也可能 pbuf/pbuf chain 负载空间不足
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 u16_t
 pbuf_memcmp(const struct pbuf *p, u16_t offset, const void *s2, u16_t n)
 {
@@ -1472,6 +2025,18 @@ pbuf_memcmp(const struct pbuf *p, u16_t offset, const void *s2, u16_t n)
  * @param start_offset offset into p at which to start searching
  * @return 0xFFFF if substr was not found in p or the index where it was found
  */
+/*********************************************************************************************************
+** 函数名称: pbuf_memfind
+** 功能描述: 在指定的 pbuf/pbuf chain 的负载地址空间中查找指定的数据内容的起始地址
+** 输	 入: p - 要查找的 pbuf/pbuf chain 指针
+**		   : mem - 要查找的数据内容缓冲区地址
+**		   : mem_len - 要查找的数据内容长度
+**		   : start_offset - 要查找的 pbuf/pbuf chain 负载地址空间起始偏移量
+** 输	 出: 0 < x < 0xFFFF - 找到的数据和查找数据起点位置之间的字节数
+**		   : 0xFFFF - 没有和指定内容相同的数据
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 u16_t
 pbuf_memfind(const struct pbuf *p, const void *mem, u16_t mem_len, u16_t start_offset)
 {
@@ -1499,6 +2064,17 @@ pbuf_memfind(const struct pbuf *p, const void *mem, u16_t mem_len, u16_t start_o
  * @param substr string to search for in p, maximum length is 0xFFFE
  * @return 0xFFFF if substr was not found in p or the index where it was found
  */
+/*********************************************************************************************************
+** 函数名称: pbuf_strstr
+** 功能描述: 在指定的 pbuf/pbuf chain 的负载地址空间中查找指定的字符串内容，并返回这个字符串在
+**         : pbuf/pbuf chain 负载地址空间中的偏移量
+** 输	 入: p - 要查找的 pbuf/pbuf chain 指针
+**		   : substr - 要查找的字符串地址
+** 输	 出: 0 < x < 0xFFFF - 找到的数字符串在 pbuf/pbuf chain 负载地址空间中的偏移量
+**		   : 0xFFFF - 没找到指定的字符串
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 u16_t
 pbuf_strstr(const struct pbuf *p, const char *substr)
 {

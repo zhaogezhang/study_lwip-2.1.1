@@ -250,6 +250,7 @@ err_t            tcp_process_refused_data(struct tcp_pcb *pcb);
 #define TCP_CHECKSUM_ON_COPY  (LWIP_CHECKSUM_ON_COPY && CHECKSUM_GEN_TCP)
 
 /* This structure represents a TCP segment on the unsent, unacked and ooseq queues */
+/* 使用这个数据结构存储一个 TCP 分段报文 */
 struct tcp_seg {
   struct tcp_seg *next;    /* used when putting segments on a queue */
   struct pbuf *p;          /* buffer containing data + TCP header */

@@ -1257,6 +1257,7 @@
  * TCP_QUEUE_OOSEQ==1: TCP will queue segments that arrive out of order.
  * Define to 0 if your device is low on memory.
  */
+/* OOSEQ - out of sequence */
 #if !defined TCP_QUEUE_OOSEQ || defined __DOXYGEN__
 #define TCP_QUEUE_OOSEQ                 LWIP_TCP
 #endif
@@ -1289,6 +1290,8 @@
  * when opening a connection. For the transmit size, this MSS sets
  * an upper limit on the MSS advertised by the remote host.
  */
+/* TCP_MSS 指的是在 TCP 传输过程中，一包数据最多可以传输的“应用负载”数据字节数
+ * 这个值在建立 TCP 连接的三次握手的 SYN 数据中进行协商，然后选取最小的值 */
 #if !defined TCP_MSS || defined __DOXYGEN__
 #define TCP_MSS                         536
 #endif
@@ -1544,6 +1547,8 @@
  * designed to accommodate single full size TCP frame in one pbuf, including
  * TCP_MSS, IP header, and link header.
  */
+/* 表示网卡接收数据使用的 PBUF_POOL 内存池对象中，一个内存池单元元素空间大小
+ * 用来存储一个数据帧数据 */
 #if !defined PBUF_POOL_BUFSIZE || defined __DOXYGEN__
 #define PBUF_POOL_BUFSIZE               LWIP_MEM_ALIGN_SIZE(TCP_MSS+40+PBUF_LINK_ENCAPSULATION_HLEN+PBUF_LINK_HLEN)
 #endif

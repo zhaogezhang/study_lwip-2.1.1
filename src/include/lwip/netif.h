@@ -81,29 +81,46 @@ extern "C" {
  * It must be set by the startup code before this netif can be used
  * (also for dhcp/autoip).
  */
+/* 表示当前网卡已经启动，但还不确定和其它设备链路是否可用，在网卡启动代码中设置 */
 #define NETIF_FLAG_UP           0x01U
+
 /** If set, the netif has broadcast capability.
  * Set by the netif driver in its init function. */
+/* 表示当前网卡具有广播功能，在网卡驱动初始化代码中设置 */
 #define NETIF_FLAG_BROADCAST    0x02U
+
 /** If set, the interface has an active link
  *  (set by the network interface driver).
  * Either set by the netif driver in its init function (if the link
  * is up at that time) or at a later point once the link comes up
  * (if link detection is supported by the hardware). */
+/* 表示当前网络接口和其它设备接口可以通信，如果在网卡驱动初始化代码中网络链路已经
+ * 处于可用状态，则设置这个标志，如果网卡硬件支持链路检测功能，则可以在网卡启动后
+ * 链路建立的时候设置这个标志 */
 #define NETIF_FLAG_LINK_UP      0x04U
+
 /** If set, the netif is an ethernet device using ARP.
  * Set by the netif driver in its init function.
  * Used to check input packet types and use of DHCP. */
+/* 如果是以太网设备，并且支持 arp 地址解析功能，则在网卡驱动初始化代码中设置这个标志 */
 #define NETIF_FLAG_ETHARP       0x08U
+
 /** If set, the netif is an ethernet device. It might not use
  * ARP or TCP/IP if it is used for PPPoE only.
  */
+/* 如果是以外网设备，且只应用于 PPPoE，则设置这个标志 */
 #define NETIF_FLAG_ETHERNET     0x10U
+
 /** If set, the netif has IGMP capability.
  * Set by the netif driver in its init function. */
+/* 如果当前网络接口支持 IGMP 功能，则在网卡驱动初始化代码中设置这个标志
+ * IGMP 用来动态的将各个主机注册到特定“局域网”中的一个组播组中 */
 #define NETIF_FLAG_IGMP         0x20U
+
 /** If set, the netif has MLD6 capability.
  * Set by the netif driver in its init function. */
+/* 如果当前网络接口支持 MLD6 功能，则在网卡驱动初始化代码中设置这个标志
+   note：IPv6 的组管理协议被称为 MLD（组播监听者发现）*/
 #define NETIF_FLAG_MLD6         0x40U
 
 /**
@@ -260,15 +277,19 @@ struct netif_hint {
 struct netif {
 #if !LWIP_SINGLE_NETIF
   /** pointer to next in linked list */
+  /* 如果当前系统支持多网口功能，系统会通过单向链表把所有网口链接起来 */
   struct netif *next;
 #endif
 
 #if LWIP_IPV4
   /** IP address configuration in network byte order */
+  /* IPv4 地址配置信息，以网络字节序方式存储（如果同时支持 IPv4 和 IPv6，则 ip_addr_t 是个
+   * 联合体类型，可分别表示            IPv4 或者 IPv6 地址）*/
   ip_addr_t ip_addr;
   ip_addr_t netmask;
   ip_addr_t gw;
 #endif /* LWIP_IPV4 */
+
 #if LWIP_IPV6
   /** Array of IPv6 addresses for this netif. */
   ip_addr_t ip6_addr[LWIP_IPV6_NUM_ADDRESSES];
@@ -283,41 +304,59 @@ struct netif {
   u32_t ip6_addr_pref_life[LWIP_IPV6_NUM_ADDRESSES];
 #endif /* LWIP_IPV6_ADDRESS_LIFETIMES */
 #endif /* LWIP_IPV6 */
+
   /** This function is called by the network device driver
    *  to pass a packet up the TCP/IP stack. */
+  /* 在网卡驱动接收到一个数据包之后，通过调用这个函数指针，把接收到的数据包上传到协议栈中处理
+     函数原型定义：typedef err_t (*netif_input_fn)(struct pbuf *p, struct netif *inp); */
   netif_input_fn input;
+
 #if LWIP_IPV4
   /** This function is called by the IP module when it wants
    *  to send a packet on the interface. This function typically
    *  first resolves the hardware address, then sends the packet.
    *  For ethernet physical layer, this is usually etharp_output() */
+  /* 在网络协议栈的 IPv4 模块需要向外发送数据的时候，通过这个函数指针把数据包发送到指定的网络接口上
+   * 函数原型定义：typedef err_t (*netif_output_fn)(struct netif *netif, struct pbuf *p, const ip4_addr_t *ipaddr); 
+   * 在我们使用的时候，常常把这个函数指针初始化为 etharp_output() */
   netif_output_fn output;
 #endif /* LWIP_IPV4 */
+
   /** This function is called by ethernet_output() when it wants
    *  to send a packet on the interface. This function outputs
    *  the pbuf as-is on the link medium. */
+  /* 这个函数指针会在 ethernet_output() 函数中调用，用来向外发送一个以太网数据帧 */
   netif_linkoutput_fn linkoutput;
+
 #if LWIP_IPV6
   /** This function is called by the IPv6 module when it wants
    *  to send a packet on the interface. This function typically
    *  first resolves the hardware address, then sends the packet.
    *  For ethernet physical layer, this is usually ethip6_output() */
+  /* 在网络协议栈的 IPv6 模块需要向外发送数据的时候，通过这个函数指针把数据包发送到指定的网络接口上
+   * 函数原型定义：typedef err_t (*netif_output_ip6_fn)(struct netif *netif, struct pbuf *p, const ip6_addr_t *ipaddr);
+   * 在我们使用的时候，常常把这个函数指针初始化为 ethip6_output() */
   netif_output_ip6_fn output_ip6;
 #endif /* LWIP_IPV6 */
+
 #if LWIP_NETIF_STATUS_CALLBACK
-  /** This function is called when the netif state is set to up or down
-   */
+  /** This function is called when the netif state is set to up or down */
+  /* 在当前网络接口网卡状态发生改变的时候会调用的回调函数指针 */  
   netif_status_callback_fn status_callback;
 #endif /* LWIP_NETIF_STATUS_CALLBACK */
+
 #if LWIP_NETIF_LINK_CALLBACK
-  /** This function is called when the netif link is set to up or down
-   */
+  /** This function is called when the netif link is set to up or down */
+  /* 在当前网络接口链路状态发生改变的时候会调用的回调函数指针 */
   netif_status_callback_fn link_callback;
 #endif /* LWIP_NETIF_LINK_CALLBACK */
+
 #if LWIP_NETIF_REMOVE_CALLBACK
   /** This function is called when the netif has been removed */
+  /* 在当前网络接口被移除的时候会被调用的回调函数指针 */
   netif_status_callback_fn remove_callback;
 #endif /* LWIP_NETIF_REMOVE_CALLBACK */
+
   /** This field can be set by the device driver and could point
    *  to state information for the device. */
   void *state;
@@ -343,11 +382,16 @@ struct netif {
   u8_t hwaddr_len;
   /** flags (@see @ref netif_flags) */
   u8_t flags;
+
   /** descriptive abbreviation */
+  /* 当前网络接口缩写名内容，例如 lo、en 等 */
   char name[2];
+  
   /** number of this interface. Used for @ref if_api and @ref netifapi_netif, 
    * as well as for IPv6 zones */
+  /* 表示当前网络接口的网络接口号，即当前网络接口是系统内第几个添加的网络接口 */
   u8_t num;
+  
 #if LWIP_IPV6_AUTOCONFIG
   /** is this netif enabled for IPv6 autoconfiguration */
   u8_t ip6_autoconfig_enabled;
@@ -356,6 +400,8 @@ struct netif {
   /** Number of Router Solicitation messages that remain to be sent. */
   u8_t rs_count;
 #endif /* LWIP_IPV6_SEND_ROUTER_SOLICIT */
+
+/* 简单网络管理协议 snmp（simple net manage protocol）中需要的管理信息库 MIB2（manage information base）结构 */
 #if MIB2_STATS
   /** link type (from "snmp_ifType" enum from snmp_mib2.h) */
   u8_t link_type;
@@ -366,6 +412,7 @@ struct netif {
   /** counters */
   struct stats_mib2_netif_ctrs mib2_counters;
 #endif /* MIB2_STATS */
+
 #if LWIP_IPV4 && LWIP_IGMP
   /** This function could be called to add or delete an entry in the multicast
       filter table of the ethernet MAC.*/
@@ -379,11 +426,16 @@ struct netif {
 #if LWIP_NETIF_USE_HINTS
   struct netif_hint *hints;
 #endif /* LWIP_NETIF_USE_HINTS */
+
 #if ENABLE_LOOPBACK
   /* List of packets to be queued for ourselves. */
+  /* 同来追踪记录发向回环网络接口上的数据包，在回环网络中，会把所有接收到的 pbuf                                    通过
+   * pbuf 自身的单向链表链接在一起，而 loop_first 指向了当前回环网络接收的缓存中，第一
+   * 个接收到的 pbuf，而 loop_last 指向了当前回环网络接收的缓存中最后接收到的 pbuf */
   struct pbuf *loop_first;
   struct pbuf *loop_last;
 #if LWIP_LOOPBACK_MAX_PBUFS
+  /* 表示当前系统在回环网络上缓存的数据包数 */
   u16_t loop_cnt_current;
 #endif /* LWIP_LOOPBACK_MAX_PBUFS */
 #endif /* ENABLE_LOOPBACK */
@@ -398,6 +450,7 @@ struct netif {
 #define IF__NETIF_CHECKSUM_ENABLED(netif, chksumflag)
 #endif /* LWIP_CHECKSUM_CTRL_PER_NETIF */
 
+/* 遍历当前系统中的每一个网络接口 */
 #if LWIP_SINGLE_NETIF
 #define NETIF_FOREACH(netif) if (((netif) = netif_default) != NULL)
 #else /* LWIP_SINGLE_NETIF */
@@ -449,8 +502,13 @@ void netif_set_gw(struct netif *netif, const ip4_addr_t *gw);
 #define netif_ip_gw4(netif)      ((const ip_addr_t*)&((netif)->gw))
 #endif /* LWIP_IPV4 */
 
+/* 设置指定网络接口的指定 flags 标志 */
 #define netif_set_flags(netif, set_flags)     do { (netif)->flags = (u8_t)((netif)->flags |  (set_flags)); } while(0)
+
+/* 清除指定网络接口的指定 flags 标志 */
 #define netif_clear_flags(netif, clr_flags)   do { (netif)->flags = (u8_t)((netif)->flags & (u8_t)(~(clr_flags) & 0xff)); } while(0)
+
+/* 判断指定网络接口的指定 flags 标志是否被置位 */
 #define netif_is_flag_set(nefif, flag)        (((netif)->flags & (flag)) != 0)
 
 void netif_set_up(struct netif *netif);
@@ -458,6 +516,7 @@ void netif_set_down(struct netif *netif);
 /** @ingroup netif
  * Ask if an interface is up
  */
+/* 判断指定的网络接口是否处于 UP 状态 */
 #define netif_is_up(netif) (((netif)->flags & NETIF_FLAG_UP) ? (u8_t)1 : (u8_t)0)
 
 #if LWIP_NETIF_STATUS_CALLBACK
@@ -553,7 +612,10 @@ char * netif_index_to_name(u8_t idx, char *name);
 struct netif* netif_get_by_index(u8_t idx);
 
 /* Interface indexes always start at 1 per RFC 3493, section 4, num starts at 0 (internal index is 0..254)*/
+/* 返回指定网络接口的网络接口号，这个网络接口号从 1 开始计算，0 表示的是无效的网络接口号 */
 #define netif_get_index(netif)      ((u8_t)((netif)->num + 1))
+
+/* 表示无效的网络接口号 */
 #define NETIF_NO_INDEX              (0)
 
 /**
@@ -563,6 +625,7 @@ struct netif* netif_get_by_index(u8_t idx);
  */
 typedef u16_t netif_nsc_reason_t;
 
+/* NSC = netif status callback */
 /* used for initialization only */
 #define LWIP_NSC_NONE                     0x0000
 /** netif was added. arg: NULL. Called AFTER netif was added. */

@@ -90,12 +90,14 @@
 #include "lwip/nd6.h"
 #endif
 
+/* 获取指定网路接口的 status_callback 函数指针 */
 #if LWIP_NETIF_STATUS_CALLBACK
 #define NETIF_STATUS_CALLBACK(n) do{ if (n->status_callback) { (n->status_callback)(n); }}while(0)
 #else
 #define NETIF_STATUS_CALLBACK(n)
 #endif /* LWIP_NETIF_STATUS_CALLBACK */
 
+/* 获取指定网路接口的 link_callback 函数指针 */
 #if LWIP_NETIF_LINK_CALLBACK
 #define NETIF_LINK_CALLBACK(n) do{ if (n->link_callback) { (n->link_callback)(n); }}while(0)
 #else
@@ -107,14 +109,20 @@ static netif_ext_callback_t *ext_callback;
 #endif
 
 #if !LWIP_SINGLE_NETIF
+/* 通过链表的方式记录当前系统中所有网络接口（非回环网路接口）*/
 struct netif *netif_list;
 #endif /* !LWIP_SINGLE_NETIF */
+
+/* 记录当前系统默认使用的网络接口指针（非回环网路接口）*/
 struct netif *netif_default;
 
 #define netif_index_to_num(index)   ((index) - 1)
+
+/* 全局变量，表示当前系统内已经添加的网络接口个数，或者为下一个添加到网络接口分配的网络接口号 */
 static u8_t netif_num;
 
 #if LWIP_NUM_NETIF_CLIENT_DATA > 0
+/* 全局变量，表示当前系统内可以分配的 client id，在每次分配后，都会自动加 1，指向下一个空闲的 client id 号 */
 static u8_t netif_client_id;
 #endif
 
@@ -129,7 +137,9 @@ static err_t netif_null_output_ip6(struct netif *netif, struct pbuf *p, const ip
 static err_t netif_null_output_ip4(struct netif *netif, struct pbuf *p, const ip4_addr_t *ipaddr);
 #endif /* LWIP_IPV4 */
 
+/* 如果系统支持回环网络接口功能，则定义和回环网络相关的数据结构及功能函数 */
 #if LWIP_HAVE_LOOPIF
+
 #if LWIP_IPV4
 static err_t netif_loop_output_ipv4(struct netif *netif, struct pbuf *p, const ip4_addr_t *addr);
 #endif
@@ -137,7 +147,7 @@ static err_t netif_loop_output_ipv4(struct netif *netif, struct pbuf *p, const i
 static err_t netif_loop_output_ipv6(struct netif *netif, struct pbuf *p, const ip6_addr_t *addr);
 #endif
 
-
+/* 表示回环网络接口结构 */
 static struct netif loop_netif;
 
 /**
@@ -147,6 +157,14 @@ static struct netif loop_netif;
  * @return ERR_OK if the loopif is initialized
  *         ERR_MEM if private data couldn't be allocated
  */
+/*********************************************************************************************************
+** 函数名称: netif_loopif_init
+** 功能描述: 初始化指定的回环网络接口指针
+** 输	 入: netif - 需要初始化的回环网络接口指针
+** 输	 出: ERR_OK - 初始化完成
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static err_t
 netif_loopif_init(struct netif *netif)
 {
@@ -155,29 +173,44 @@ netif_loopif_init(struct netif *netif)
   /* initialize the snmp variables and counters inside the struct netif
    * ifSpeed: no assumption can be made!
    */
+  /* 初始化 MIB2 管理信息库（manage information base）相关结构信息 */
   MIB2_INIT_NETIF(netif, snmp_ifType_softwareLoopback, 0);
 
+  /* 设置回环网络接口缩写名 */
   netif->name[0] = 'l';
   netif->name[1] = 'o';
+  
 #if LWIP_IPV4
   netif->output = netif_loop_output_ipv4;
 #endif
 #if LWIP_IPV6
   netif->output_ip6 = netif_loop_output_ipv6;
 #endif
+
+/* 如果本地回环网络支持多播功能，则设置网络接口的 NETIF_FLAG_IGMP 标志 */
 #if LWIP_LOOPIF_MULTICAST
   netif_set_flags(netif, NETIF_FLAG_IGMP);
 #endif
+
   NETIF_SET_CHECKSUM_CTRL(netif, NETIF_CHECKSUM_DISABLE_ALL);
   return ERR_OK;
 }
 #endif /* LWIP_HAVE_LOOPIF */
 
+/*********************************************************************************************************
+** 函数名称: netif_init
+** 功能描述: 初始化并创建一个本地回环网络接口
+** 输	 入: 
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 netif_init(void)
 {
 #if LWIP_HAVE_LOOPIF
 #if LWIP_IPV4
+/* 初始化回环网络相关变量 */
 #define LOOPIF_ADDRINIT &loop_ipaddr, &loop_netmask, &loop_gw,
   ip4_addr_t loop_ipaddr, loop_netmask, loop_gw;
   IP4_ADDR(&loop_gw, 127, 0, 0, 1);
@@ -213,6 +246,15 @@ netif_init(void)
  * Only works if the netif driver correctly sets
  * NETIF_FLAG_ETHARP and/or NETIF_FLAG_ETHERNET flag!
  */
+/*********************************************************************************************************
+** 函数名称: netif_input
+** 功能描述: 当网卡驱动接收到一个数据帧的时候，通过这个函数，把接收到的数据包传到协议栈上层来处理
+** 输	 入: p - 接收到的数据
+**         : inp - 接收到数据的网络接口指针
+** 输	 出: err_t - 执行状态
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 err_t
 netif_input(struct pbuf *p, struct netif *inp)
 {
@@ -235,6 +277,17 @@ netif_input(struct pbuf *p, struct netif *inp)
  *
  * Same as @ref netif_add but without IPv4 addresses
  */
+/*********************************************************************************************************
+** 函数名称: netif_add_noaddr
+** 功能描述: 添加一个使用 ANY 地址信息的网络接口
+** 输	 入: netif - 要添加的网络接口指针
+**		   : state - 由设备驱动指定的，存储在网络接口中的私有数据
+**         : init - 初始化网络接口的函数指针
+**         : input - 把网卡接收的以太网数据帧上传给协议栈的函数指针
+** 输	 出: err_t - 执行状态
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 struct netif *
 netif_add_noaddr(struct netif *netif, void *state, netif_init_fn init, netif_input_fn input)
 {
@@ -272,6 +325,22 @@ netif_add_noaddr(struct netif *netif, void *state, netif_init_fn init, netif_inp
  *
  * @return netif, or NULL if failed.
  */
+/*********************************************************************************************************
+** 函数名称: netif_add
+** 功能描述: 添加一个指定地址信息的网络接口到当前协议栈中，并通知相关单元模块进行数据同步，然后调用
+**         : 用户指定的网络接口初始化函数
+** 输	 入: netif - 要添加的网络接口指针
+**		   : ipaddr - 新的网络接口的 IPv4 地址
+**		   : netmask - 新的网络接口的网络掩码 IPv4 地址
+**		   : gw - 新的网络接口的网关 IPv4 地址
+**		   : state - 由设备驱动指定的，存储在网络接口中的私有数据
+**		   : init - 初始化网络接口的函数指针
+**		   : input - 把网卡接收的以太网数据帧上传给协议栈的函数指针
+** 输	 出: netif - 添加的网络接口指针
+**         : NULL - 添加失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 struct netif *
 netif_add(struct netif *netif,
 #if LWIP_IPV4
@@ -295,7 +364,9 @@ netif_add(struct netif *netif,
   LWIP_ERROR("netif_add: invalid netif", netif != NULL, return NULL);
   LWIP_ERROR("netif_add: No init function given", init != NULL, return NULL);
 
+/* 设置默认的 IPv4 相关地址信息 */
 #if LWIP_IPV4
+  /* 如果在调用函数时没有设置 IPv4 相关地址信息，则默认设置为 ANY 地址 */
   if (ipaddr == NULL) {
     ipaddr = ip_2_ip4(IP4_ADDR_ANY);
   }
@@ -312,6 +383,8 @@ netif_add(struct netif *netif,
   ip_addr_set_zero_ip4(&netif->gw);
   netif->output = netif_null_output_ip4;
 #endif /* LWIP_IPV4 */
+
+/* 设置默认的 IPv6 相关地址信息 */
 #if LWIP_IPV6
   for (i = 0; i < LWIP_IPV6_NUM_ADDRESSES; i++) {
     ip_addr_set_zero_ip6(&netif->ip6_addr[i]);
@@ -323,31 +396,39 @@ netif_add(struct netif *netif,
   }
   netif->output_ip6 = netif_null_output_ip6;
 #endif /* LWIP_IPV6 */
+
   NETIF_SET_CHECKSUM_CTRL(netif, NETIF_CHECKSUM_ENABLE_ALL);
   netif->mtu = 0;
   netif->flags = 0;
 #ifdef netif_get_client_data
   memset(netif->client_data, 0, sizeof(netif->client_data));
 #endif /* LWIP_NUM_NETIF_CLIENT_DATA */
+
 #if LWIP_IPV6
 #if LWIP_IPV6_AUTOCONFIG
   /* IPv6 address autoconfiguration not enabled by default */
+  /* IPv6 自动分配地址功能默认不开启 */
   netif->ip6_autoconfig_enabled = 0;
 #endif /* LWIP_IPV6_AUTOCONFIG */
   nd6_restart_netif(netif);
 #endif /* LWIP_IPV6 */
+
 #if LWIP_NETIF_STATUS_CALLBACK
   netif->status_callback = NULL;
 #endif /* LWIP_NETIF_STATUS_CALLBACK */
+
 #if LWIP_NETIF_LINK_CALLBACK
   netif->link_callback = NULL;
 #endif /* LWIP_NETIF_LINK_CALLBACK */
+
 #if LWIP_IGMP
   netif->igmp_mac_filter = NULL;
 #endif /* LWIP_IGMP */
+
 #if LWIP_IPV6 && LWIP_IPV6_MLD
   netif->mld_mac_filter = NULL;
 #endif /* LWIP_IPV6 && LWIP_IPV6_MLD */
+
 #if ENABLE_LOOPBACK
   netif->loop_first = NULL;
   netif->loop_last = NULL;
@@ -364,13 +445,16 @@ netif_add(struct netif *netif,
 #endif /* ENABLE_LOOPBACK && LWIP_LOOPBACK_MAX_PBUFS */
 
 #if LWIP_IPV4
+  /* 设置指定网络接口的 IPv4 地址信息，并通知相关单元模块进行数据同步 */
   netif_set_addr(netif, ipaddr, netmask, gw);
 #endif /* LWIP_IPV4 */
 
   /* call user specified initialization function for netif */
+  /* 调用用户指定的网络接口初始化函数 */
   if (init(netif) != ERR_OK) {
     return NULL;
   }
+  
 #if LWIP_IPV6 && LWIP_ND6_ALLOW_RA_UPDATES
   /* Initialize the MTU for IPv6 to the one set by the netif driver.
      This can be updated later by RA. */
@@ -402,6 +486,8 @@ netif_add(struct netif *netif,
       }
     } while (netif2 != NULL);
   }
+
+  /* 表示当前系统内已经添加的网络接口个数，或者为下一个添加到网络接口分配的网络接口号 */
   if (netif->num == 254) {
     netif_num = 0;
   } else {
@@ -409,14 +495,17 @@ netif_add(struct netif *netif,
   }
 
   /* add this netif to the list */
+  /* 把新的网络接口添加到全局网络接口链表中 */
   netif->next = netif_list;
   netif_list = netif;
+  
 #endif /* "LWIP_SINGLE_NETIF */
   mib2_netif_added(netif);
 
 #if LWIP_IGMP
   /* start IGMP processing */
   if (netif->flags & NETIF_FLAG_IGMP) {
+  	/* 启动 IGMP 进程 */
     igmp_start(netif);
   }
 #endif /* LWIP_IGMP */
@@ -433,11 +522,22 @@ netif_add(struct netif *netif,
 #endif /* LWIP_IPV4 */
   LWIP_DEBUGF(NETIF_DEBUG, ("\n"));
 
+  /* 分别向当前系统 ext_callback 中的每个回调函数发送一个指定的事件 */
   netif_invoke_ext_callback(netif, LWIP_NSC_NETIF_ADDED, NULL);
 
   return netif;
 }
 
+/*********************************************************************************************************
+** 函数名称: netif_do_ip_addr_changed
+** 功能描述: 在网络地址信息发生变化时，调用这个函数通知协议栈中其他相关协议层变化前后的地址信息
+**         : 这样其他的协议层可以根据变化的地址信息做相应处理
+** 输     入: old_addr - 旧的	IPv4 地址
+**		   : new_addr - 新的 IPv4 地址
+** 输     出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void
 netif_do_ip_addr_changed(const ip_addr_t *old_addr, const ip_addr_t *new_addr)
 {
@@ -453,6 +553,16 @@ netif_do_ip_addr_changed(const ip_addr_t *old_addr, const ip_addr_t *new_addr)
 }
 
 #if LWIP_IPV4
+/*********************************************************************************************************
+** 函数名称: netif_do_set_ipaddr
+** 功能描述: 设置指定网络接口的 IPv4 地址信息，并通知相关单元同步旧的地址信息到新的地址信息
+** 输	 入: netif - 要设置地址的网络接口指针
+**		   : ipaddr - 新的 IPv4 地址
+**		   : old_addr - 旧的    IPv4 地址
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static int
 netif_do_set_ipaddr(struct netif *netif, const ip4_addr_t *ipaddr, ip_addr_t *old_addr)
 {
@@ -460,26 +570,37 @@ netif_do_set_ipaddr(struct netif *netif, const ip4_addr_t *ipaddr, ip_addr_t *ol
   LWIP_ASSERT("invalid pointer", old_addr != NULL);
 
   /* address is actually being changed? */
+  /* 如果新设置的 IPv4 地址和之前的不一样，则执行相关操作 */
   if (ip4_addr_cmp(ipaddr, netif_ip4_addr(netif)) == 0) {
     ip_addr_t new_addr;
     *ip_2_ip4(&new_addr) = *ipaddr;
     IP_SET_TYPE_VAL(new_addr, IPADDR_TYPE_V4);
 
+	/* 把旧的 IPv4 地址信息复制到 old_addr 中 */
     ip_addr_copy(*old_addr, *netif_ip_addr4(netif));
 
     LWIP_DEBUGF(NETIF_DEBUG | LWIP_DBG_STATE, ("netif_set_ipaddr: netif address being changed\n"));
+
+	/* 通知协议栈中其他协议层变化的地址信息 */
     netif_do_ip_addr_changed(old_addr, &new_addr);
 
+    /* 删除旧的 IPv4 地址相关 MIB2 信息 */
     mib2_remove_ip4(netif);
     mib2_remove_route_ip4(0, netif);
+	
     /* set new IP address to netif */
     ip4_addr_set(ip_2_ip4(&netif->ip_addr), ipaddr);
     IP_SET_TYPE_VAL(netif->ip_addr, IPADDR_TYPE_V4);
+	
+    /* 添加新的 IPv4 地址相关 MIB2 信息 */
     mib2_add_ip4(netif);
     mib2_add_route_ip4(0, netif);
 
+	/* 向协议栈其他相关模块或者和当前网络接口相关的设备节点发送一个事件
+	 * 使其同步旧的数据到新的数据 */
     netif_issue_reports(netif, NETIF_REPORT_TYPE_IPV4);
 
+    /* 执行指定网路接口的 status_callback 函数 */
     NETIF_STATUS_CALLBACK(netif);
     return 1; /* address changed */
   }
@@ -496,6 +617,16 @@ netif_do_set_ipaddr(struct netif *netif, const ip4_addr_t *ipaddr, ip_addr_t *ol
  * @note call netif_set_addr() if you also want to change netmask and
  * default gateway
  */
+/*********************************************************************************************************
+** 函数名称: netif_set_ipaddr
+** 功能描述: 设置指定网络接口的 IPv4 地址信息，并通知相关单元同步旧的地址信息到新的地址信息
+** 注     释: 这个函数支持“用户自定义”的扩展回调（钩子）函数功能
+** 输	 入: netif - 要设置地址的网络接口指针
+**		   : ipaddr - 新的 IPv4 地址
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 netif_set_ipaddr(struct netif *netif, const ip4_addr_t *ipaddr)
 {
@@ -511,6 +642,7 @@ netif_set_ipaddr(struct netif *netif, const ip4_addr_t *ipaddr)
   LWIP_ASSERT_CORE_LOCKED();
 
   if (netif_do_set_ipaddr(netif, ipaddr, &old_addr)) {
+  	/* 只有在地址真的发生改变的时候才会通过扩展回调函数指针发送事件 */
 #if LWIP_NETIF_EXT_STATUS_CALLBACK
     netif_ext_callback_args_t args;
     args.ipv4_changed.old_address = &old_addr;
@@ -519,6 +651,16 @@ netif_set_ipaddr(struct netif *netif, const ip4_addr_t *ipaddr)
   }
 }
 
+/*********************************************************************************************************
+** 函数名称: netif_do_set_netmask
+** 功能描述: 设置指定网络接口的网络地址掩码 IPv4 信息，并更新相关 MIB2 信息库数据
+** 输	 入: netif - 要设置网络掩码的网络接口指针
+**		   : netmask - 新的网络掩码
+**		   : old_nm - 旧的网络掩码
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static int
 netif_do_set_netmask(struct netif *netif, const ip4_addr_t *netmask, ip_addr_t *old_nm)
 {
@@ -556,6 +698,16 @@ netif_do_set_netmask(struct netif *netif, const ip4_addr_t *netmask, ip_addr_t *
  * @note call netif_set_addr() if you also want to change ip address and
  * default gateway
  */
+/*********************************************************************************************************
+** 函数名称: netif_set_netmask
+** 功能描述: 设置指定网络接口的网络地址掩码 IPv4 信息，并同步旧的地址信息到新的地址信息
+** 注     释: 这个函数支持“用户自定义”的扩展回调（钩子）函数功能
+** 输	 入: netif - 要设置网络地址掩码的网络接口指针
+**		   : netmask - 新的网络掩码
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 netif_set_netmask(struct netif *netif, const ip4_addr_t *netmask)
 {
@@ -575,6 +727,7 @@ netif_set_netmask(struct netif *netif, const ip4_addr_t *netmask)
   }
 
   if (netif_do_set_netmask(netif, netmask, old_nm)) {
+  	/* 只有在网络掩码真的发生改变的时候才会通过扩展回调函数指针发送事件 */
 #if LWIP_NETIF_EXT_STATUS_CALLBACK
     netif_ext_callback_args_t args;
     args.ipv4_changed.old_netmask = old_nm;
@@ -583,6 +736,16 @@ netif_set_netmask(struct netif *netif, const ip4_addr_t *netmask)
   }
 }
 
+/*********************************************************************************************************
+** 函数名称: netif_do_set_gw
+** 功能描述: 设置指定网络接口的网关地址 IPv4 信息
+** 输	 入: netif - 要设置网关地址的网络接口指针
+**		   : gw - 新的网关地址
+**		   : old_gw - 旧的网关地址
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static int
 netif_do_set_gw(struct netif *netif, const ip4_addr_t *gw, ip_addr_t *old_gw)
 {
@@ -617,6 +780,16 @@ netif_do_set_gw(struct netif *netif, const ip4_addr_t *gw, ip_addr_t *old_gw)
  *
  * @note call netif_set_addr() if you also want to change ip address and netmask
  */
+/*********************************************************************************************************
+** 函数名称: netif_set_gw
+** 功能描述: 设置指定网络接口的网关地址 IPv4 信息
+** 注	 释: 这个函数支持“用户自定义”的扩展回调（钩子）函数功能
+** 输	 入: netif - 要设置网关地址的网络接口指针
+**		   : ipaddr - 新的网关地址
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 netif_set_gw(struct netif *netif, const ip4_addr_t *gw)
 {
@@ -636,6 +809,7 @@ netif_set_gw(struct netif *netif, const ip4_addr_t *gw)
   }
 
   if (netif_do_set_gw(netif, gw, old_gw)) {
+  	/* 只有在网关地址真的发生改变的时候才会通过扩展回调函数指针发送事件 */
 #if LWIP_NETIF_EXT_STATUS_CALLBACK
     netif_ext_callback_args_t args;
     args.ipv4_changed.old_gw = old_gw;
@@ -654,6 +828,17 @@ netif_set_gw(struct netif *netif, const ip4_addr_t *gw)
  * @param netmask the new netmask
  * @param gw the new default gateway
  */
+/*********************************************************************************************************
+** 函数名称: netif_set_addr
+** 功能描述: 设置指定网络接口的 IPv4 地址信息，并通知相关单元模块进行数据同步
+** 输	 入: netif - 要设置地址的网络接口指针
+**		   : ipaddr - 要设置的 IPv4 地址
+**		   : netmask - 要设置的网络掩码 IPv4 地址
+**		   : gw - 要设置的网关 IPv4 地址
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 netif_set_addr(struct netif *netif, const ip4_addr_t *ipaddr, const ip4_addr_t *netmask,
                const ip4_addr_t *gw)
@@ -675,6 +860,7 @@ netif_set_addr(struct netif *netif, const ip4_addr_t *ipaddr, const ip4_addr_t *
   LWIP_ASSERT_CORE_LOCKED();
 
   /* Don't propagate NULL pointer (IPv4 ANY) to subsequent functions */
+  /* 如果没指定 IPv4 地址，则设置为 IPv4 ANY */
   if (ipaddr == NULL) {
     ipaddr = IP4_ADDR_ANY4;
   }
@@ -689,6 +875,7 @@ netif_set_addr(struct netif *netif, const ip4_addr_t *ipaddr, const ip4_addr_t *
   if (remove) {
     /* when removing an address, we have to remove it *before* changing netmask/gw
        to ensure that tcp RST segment can be sent correctly */
+    /* 设置指定网络接口的 IPv4 地址信息，并通知相关单元同步旧的地址信息到新的地址信息 */
     if (netif_do_set_ipaddr(netif, ipaddr, &old_addr)) {
 #if LWIP_NETIF_EXT_STATUS_CALLBACK
       change_reason |= LWIP_NSC_IPV4_ADDRESS_CHANGED;
@@ -696,20 +883,26 @@ netif_set_addr(struct netif *netif, const ip4_addr_t *ipaddr, const ip4_addr_t *
 #endif
     }
   }
+
+  /* 设置指定网络接口的网络地址掩码 IPv4 信息，并更新相关 MIB2 信息库数据 */
   if (netif_do_set_netmask(netif, netmask, old_nm)) {
 #if LWIP_NETIF_EXT_STATUS_CALLBACK
     change_reason |= LWIP_NSC_IPV4_NETMASK_CHANGED;
     cb_args.ipv4_changed.old_netmask = old_nm;
 #endif
   }
+
+  /* 设置指定网络接口的网关地址 IPv4 信息 */
   if (netif_do_set_gw(netif, gw, old_gw)) {
 #if LWIP_NETIF_EXT_STATUS_CALLBACK
     change_reason |= LWIP_NSC_IPV4_GATEWAY_CHANGED;
     cb_args.ipv4_changed.old_gw = old_gw;
 #endif
   }
+  
   if (!remove) {
     /* set ipaddr last to ensure netmask/gw have been set when status callback is called */
+    /* 设置指定网络接口的 IPv4 地址信息，并通知相关单元同步旧的地址信息到新的地址信息 */
     if (netif_do_set_ipaddr(netif, ipaddr, &old_addr)) {
 #if LWIP_NETIF_EXT_STATUS_CALLBACK
       change_reason |= LWIP_NSC_IPV4_ADDRESS_CHANGED;
@@ -721,6 +914,7 @@ netif_set_addr(struct netif *netif, const ip4_addr_t *ipaddr, const ip4_addr_t *
 #if LWIP_NETIF_EXT_STATUS_CALLBACK
   if (change_reason != LWIP_NSC_NONE) {
     change_reason |= LWIP_NSC_IPV4_SETTINGS_CHANGED;
+	/* 分别向当前系统 ext_callback 中的每个回调函数发送一个指定的事件 */
     netif_invoke_ext_callback(netif, change_reason, &cb_args);
   }
 #endif
@@ -733,6 +927,14 @@ netif_set_addr(struct netif *netif, const ip4_addr_t *ipaddr, const ip4_addr_t *
  *
  * @param netif the network interface to remove
  */
+/*********************************************************************************************************
+** 函数名称: netif_remove
+** 功能描述: 从当前系统中移除指定的网络接口，并清除和这个网络接口相关的数据，然后调用相关回调函数发送事件
+** 输	 入: netif - 要移除的网络接口指针
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 netif_remove(struct netif *netif)
 {
@@ -746,16 +948,19 @@ netif_remove(struct netif *netif)
     return;
   }
 
+  /* 分别向当前系统 ext_callback 中的每个回调函数发送一个指定的事件 */
   netif_invoke_ext_callback(netif, LWIP_NSC_NETIF_REMOVED, NULL);
 
 #if LWIP_IPV4
   if (!ip4_addr_isany_val(*netif_ip4_addr(netif))) {
+  	/* 通知协议栈中其他相关协议层变化前后的地址信息，这样其他的协议层可以根据变化的地址信息做相应处理 */
     netif_do_ip_addr_changed(netif_ip_addr4(netif), NULL);
   }
 
 #if LWIP_IGMP
   /* stop IGMP processing */
   if (netif->flags & NETIF_FLAG_IGMP) {
+  	/* 停止 IGMP 进程 */
     igmp_stop(netif);
   }
 #endif /* LWIP_IGMP */
@@ -764,6 +969,7 @@ netif_remove(struct netif *netif)
 #if LWIP_IPV6
   for (i = 0; i < LWIP_IPV6_NUM_ADDRESSES; i++) {
     if (ip6_addr_isvalid(netif_ip6_addr_state(netif, i))) {
+      /* 通知协议栈中其他相关协议层变化前后的地址信息，这样其他的协议层可以根据变化的地址信息做相应处理 */
       netif_do_ip_addr_changed(netif_ip_addr6(netif, i), NULL);
     }
   }
@@ -772,6 +978,8 @@ netif_remove(struct netif *netif)
   mld6_stop(netif);
 #endif /* LWIP_IPV6_MLD */
 #endif /* LWIP_IPV6 */
+
+  /* 如果当前网络接口处于 UP 状态，则设置其状态为 DOWN */
   if (netif_is_up(netif)) {
     /* set netif down before removing (call callback function) */
     netif_set_down(netif);
@@ -791,6 +999,8 @@ netif_remove(struct netif *netif)
   } else {
     /*  look for netif further down the list */
     struct netif *tmp_netif;
+
+	/* 遍历当前系统中的每一个网络接口，找到当前的网络接口并从全局网络接口链表上移除 */
     NETIF_FOREACH(tmp_netif) {
       if (tmp_netif->next == netif) {
         tmp_netif->next = netif->next;
@@ -803,6 +1013,7 @@ netif_remove(struct netif *netif)
   }
 #endif /* !LWIP_SINGLE_NETIF */
   mib2_netif_removed(netif);
+
 #if LWIP_NETIF_REMOVE_CALLBACK
   if (netif->remove_callback) {
     netif->remove_callback(netif);
@@ -818,6 +1029,14 @@ netif_remove(struct netif *netif)
  *
  * @param netif the default network interface
  */
+/*********************************************************************************************************
+** 函数名称: netif_set_default
+** 功能描述: 设置指定的网络接口为当前系统默认使用的网络接口并更新相关记录数据
+** 输	 入: netif - 要设置的默认网络接口指针
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 netif_set_default(struct netif *netif)
 {
@@ -840,6 +1059,15 @@ netif_set_default(struct netif *netif)
  * Bring an interface up, available for processing
  * traffic.
  */
+/*********************************************************************************************************
+** 函数名称: netif_set_up
+** 功能描述: 设置指定的网络接口状态为 UP，并通过相关的回调函数向协议栈其他相关模块或者和当前网络接口
+**         : 相关的设备节点发送事件
+** 输	 入: netif - 要设置的为 UP 状态的网络接口指针
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 netif_set_up(struct netif *netif)
 {
@@ -852,6 +1080,7 @@ netif_set_up(struct netif *netif)
 
     MIB2_COPY_SYSUPTIME_TO(&netif->ts);
 
+	/* 调用当前网路接口的 status_callback 回调函数 */
     NETIF_STATUS_CALLBACK(netif);
 
 #if LWIP_NETIF_EXT_STATUS_CALLBACK
@@ -871,6 +1100,16 @@ netif_set_up(struct netif *netif)
 
 /** Send ARP/IGMP/MLD/RS events, e.g. on link-up/netif-up or addr-change
  */
+/*********************************************************************************************************
+** 函数名称: netif_issue_reports
+** 功能描述: 在指定的网络接口状态或者地址改变的时候，通过调用这个函数向协议栈其他相关模块或者和当前
+**         : 网络接口相关的设备节点发送一个事件让其根据事件同步信息，即把旧的数据同步到新的数据
+** 输	 入: netif - 发生变化的网络接口指针
+**		   : report_type -要发送的事件类型
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void
 netif_issue_reports(struct netif *netif, u8_t report_type)
 {
@@ -888,6 +1127,8 @@ netif_issue_reports(struct netif *netif, u8_t report_type)
 #if LWIP_ARP
     /* For Ethernet network interfaces, we would like to send a "gratuitous ARP" */
     if (netif->flags & (NETIF_FLAG_ETHARP)) {
+  	  /* 为指定 IPv4 地址发送一个 "gratuitous ARP" 信息，接收到这个信息的
+  	   * 设备节点会更新 arp 映射表信息到当前地址值 */
       etharp_gratuitous(netif);
     }
 #endif /* LWIP_ARP */
@@ -915,6 +1156,14 @@ netif_issue_reports(struct netif *netif, u8_t report_type)
  * @ingroup netif
  * Bring an interface down, disabling any traffic processing.
  */
+/*********************************************************************************************************
+** 函数名称: netif_set_down
+** 功能描述: 清除指定的网络接口的 UP 标志，并清除和当前网络接口相关的 arp 缓存数据，然后调用相关回调函数
+** 输	 入: netif - 要设置为 DOWN 状态的网络接口指针
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 netif_set_down(struct netif *netif)
 {
@@ -927,6 +1176,7 @@ netif_set_down(struct netif *netif)
     {
       netif_ext_callback_args_t args;
       args.status_changed.state = 0;
+	  /* 分别向当前系统 ext_callback 中的每个回调函数发送一个指定的事件 */
       netif_invoke_ext_callback(netif, LWIP_NSC_STATUS_CHANGED, &args);
     }
 #endif
@@ -936,6 +1186,7 @@ netif_set_down(struct netif *netif)
 
 #if LWIP_IPV4 && LWIP_ARP
     if (netif->flags & NETIF_FLAG_ETHARP) {
+	  /* 清空系统内和当前网络接口相关的所有 arp 缓存项 */
       etharp_cleanup_netif(netif);
     }
 #endif /* LWIP_IPV4 && LWIP_ARP */
@@ -944,6 +1195,7 @@ netif_set_down(struct netif *netif)
     nd6_cleanup_netif(netif);
 #endif /* LWIP_IPV6 */
 
+    /* 调用当前网路接口的 status_callback 函数 */
     NETIF_STATUS_CALLBACK(netif);
   }
 }
@@ -953,6 +1205,15 @@ netif_set_down(struct netif *netif)
  * @ingroup netif
  * Set callback to be called when interface is brought up/down or address is changed while up
  */
+/*********************************************************************************************************
+** 函数名称: netif_set_status_callback
+** 功能描述: 设置指定的网络接口的 status_callback 函数指针
+** 输	 入: netif - 要设的网络接口指针
+**         : status_callback - 要设置的 status_callback 函数指针
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 netif_set_status_callback(struct netif *netif, netif_status_callback_fn status_callback)
 {
@@ -969,6 +1230,15 @@ netif_set_status_callback(struct netif *netif, netif_status_callback_fn status_c
  * @ingroup netif
  * Set callback to be called when the interface has been removed
  */
+/*********************************************************************************************************
+** 函数名称: netif_set_remove_callback
+** 功能描述: 设置指定的网络接口的 remove_callback 函数指针
+** 输	 入: netif - 要设的网络接口指针
+**		   : remove_callback - 要设置的 remove_callback 函数指针
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 netif_set_remove_callback(struct netif *netif, netif_status_callback_fn remove_callback)
 {
@@ -984,6 +1254,15 @@ netif_set_remove_callback(struct netif *netif, netif_status_callback_fn remove_c
  * @ingroup netif
  * Called by a driver when its link goes up
  */
+/*********************************************************************************************************
+** 函数名称: netif_set_link_up
+** 功能描述: 设置指定的网络接口状态为 LINK_UP，并通知其他相关模块做相应的处理
+** 注     释: 这个函数由驱动代码在链路状态变为 UP 的时候调用
+** 输	 入: netif - 要设的网络接口指针 
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 netif_set_link_up(struct netif *netif)
 {
@@ -1012,6 +1291,7 @@ netif_set_link_up(struct netif *netif)
     {
       netif_ext_callback_args_t args;
       args.link_changed.state = 1;
+	  /* 分别向当前系统 ext_callback 中的每个回调函数发送一个指定的事件 */
       netif_invoke_ext_callback(netif, LWIP_NSC_LINK_CHANGED, &args);
     }
 #endif
@@ -1022,6 +1302,15 @@ netif_set_link_up(struct netif *netif)
  * @ingroup netif
  * Called by a driver when its link goes down
  */
+/*********************************************************************************************************
+** 函数名称: netif_set_link_down
+** 功能描述: 清除指定网络接口的 LINK_UP 标志，并调用相关的回调函数
+** 注	 释: 这个函数由驱动代码在链路状态变为 DOWN 的时候调用
+** 输	 入: netif - 要设的网络接口指针 
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 netif_set_link_down(struct netif *netif)
 {
@@ -1031,11 +1320,15 @@ netif_set_link_down(struct netif *netif)
 
   if (netif->flags & NETIF_FLAG_LINK_UP) {
     netif_clear_flags(netif, NETIF_FLAG_LINK_UP);
+
+    /* 调用当前网路接口的 link_callback 回调函数 */
     NETIF_LINK_CALLBACK(netif);
+  
 #if LWIP_NETIF_EXT_STATUS_CALLBACK
     {
       netif_ext_callback_args_t args;
       args.link_changed.state = 0;
+	  /* 分别向当前系统 ext_callback 中的每个回调函数发送一个指定的事件 */
       netif_invoke_ext_callback(netif, LWIP_NSC_LINK_CHANGED, &args);
     }
 #endif
@@ -1047,6 +1340,15 @@ netif_set_link_down(struct netif *netif)
  * @ingroup netif
  * Set callback to be called when link is brought up/down
  */
+/*********************************************************************************************************
+** 函数名称: netif_set_link_callback
+** 功能描述: 设置指定网络接口的 link_callback 回调函数指针
+** 输	 入: netif - 要设置的网络接口指针
+**         : link_callback - 要设置的 link_callback 回调函数指针
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 netif_set_link_callback(struct netif *netif, netif_status_callback_fn link_callback)
 {
@@ -1073,6 +1375,16 @@ netif_set_link_callback(struct netif *netif, netif_status_callback_fn link_callb
  * @return ERR_OK if the packet has been sent
  *         ERR_MEM if the pbuf used to copy the packet couldn't be allocated
  */
+/*********************************************************************************************************
+** 函数名称: netif_loop_output
+** 功能描述: 向指定的回环网络接口中发送一个数据包，如果是多线程环境，在发送完数据后，还要触发指定线程
+**         : 执行数据接收回调函数
+** 输	 入: netif - 回环网络接口指针
+**		   : p - 要发送的数据包指针
+** 输	 出: err_t - 执行状态
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 err_t
 netif_loop_output(struct netif *netif, struct pbuf *p)
 {
@@ -1082,6 +1394,7 @@ netif_loop_output(struct netif *netif, struct pbuf *p)
 #if LWIP_LOOPBACK_MAX_PBUFS
   u16_t clen = 0;
 #endif /* LWIP_LOOPBACK_MAX_PBUFS */
+
   /* If we have a loopif, SNMP counters are adjusted for it,
    * if not they are adjusted for 'netif'. */
 #if MIB2_STATS
@@ -1091,15 +1404,18 @@ netif_loop_output(struct netif *netif, struct pbuf *p)
   struct netif *stats_if = netif;
 #endif /* LWIP_HAVE_LOOPIF */
 #endif /* MIB2_STATS */
+
 #if LWIP_NETIF_LOOPBACK_MULTITHREADING
   u8_t schedule_poll = 0;
 #endif /* LWIP_NETIF_LOOPBACK_MULTITHREADING */
+
   SYS_ARCH_DECL_PROTECT(lev);
 
   LWIP_ASSERT("netif_loop_output: invalid netif", netif != NULL);
   LWIP_ASSERT("netif_loop_output: invalid pbuf", p != NULL);
 
   /* Allocate a new pbuf */
+  /* 申请一个新的 pbuf，用来存储接收的数据 */
   r = pbuf_alloc(PBUF_LINK, p->tot_len, PBUF_RAM);
   if (r == NULL) {
     LINK_STATS_INC(link.memerr);
@@ -1107,9 +1423,11 @@ netif_loop_output(struct netif *netif, struct pbuf *p)
     MIB2_STATS_NETIF_INC(stats_if, ifoutdiscards);
     return ERR_MEM;
   }
+  
 #if LWIP_LOOPBACK_MAX_PBUFS
   clen = pbuf_clen(r);
   /* check for overflow or too many pbuf on queue */
+  /* 如果当前网络接口的回环网络上的未处理数据包已经超出设置的限制，则丢弃当前要发送的数据包 */
   if (((netif->loop_cnt_current + clen) < netif->loop_cnt_current) ||
       ((netif->loop_cnt_current + clen) > LWIP_MIN(LWIP_LOOPBACK_MAX_PBUFS, 0xFFFF))) {
     pbuf_free(r);
@@ -1122,6 +1440,7 @@ netif_loop_output(struct netif *netif, struct pbuf *p)
 #endif /* LWIP_LOOPBACK_MAX_PBUFS */
 
   /* Copy the whole pbuf queue p into the single pbuf r */
+  /* 把回环网络上向外发送的数据包直接复制到新申请的 pbuf 接收缓冲区中 */
   if ((err = pbuf_copy(r, p)) != ERR_OK) {
     pbuf_free(r);
     LINK_STATS_INC(link.memerr);
@@ -1134,11 +1453,14 @@ netif_loop_output(struct netif *netif, struct pbuf *p)
      netif_poll(). */
 
   /* let last point to the last pbuf in chain r */
+  /* 找到当前数据包链表中的最后一个 pbuf 成员指针，并赋值给 last 变量，主要是为了
+   * 维护 netif->loop_last 的值 */
   for (last = r; last->next != NULL; last = last->next) {
     /* nothing to do here, just get to the last pbuf */
   }
 
   SYS_ARCH_PROTECT(lev);
+  /* 把从回环网络上接收到是数据包添加到回环网络接收链表上 */
   if (netif->loop_first != NULL) {
     LWIP_ASSERT("if first != NULL, last must also be != NULL", netif->loop_last != NULL);
     netif->loop_last->next = r;
@@ -1160,6 +1482,7 @@ netif_loop_output(struct netif *netif, struct pbuf *p)
 #if LWIP_NETIF_LOOPBACK_MULTITHREADING
   /* For multithreading environment, schedule a call to netif_poll */
   if (schedule_poll) {
+  	/* 通过 tcpip_thread 线程执行 netif_poll 回调函数 */
     tcpip_try_callback((tcpip_callback_fn)netif_poll, netif);
   }
 #endif /* LWIP_NETIF_LOOPBACK_MULTITHREADING */
@@ -1169,6 +1492,17 @@ netif_loop_output(struct netif *netif, struct pbuf *p)
 
 #if LWIP_HAVE_LOOPIF
 #if LWIP_IPV4
+/*********************************************************************************************************
+** 函数名称: netif_loop_output_ipv4
+** 功能描述: 在 IPv4 网络中，向指定的回环网络接口中发送一个数据包，如果是多线程环境，在发送完数据后
+**         : 还要触发指定线程执行数据接收回调函数
+** 输	 入: netif - 回环网络接口指针
+**		   : p - 要发送的数据包指针
+**         : addr - 回环网络 IPv4 地址
+** 输	 出: err_t - 执行状态
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static err_t
 netif_loop_output_ipv4(struct netif *netif, struct pbuf *p, const ip4_addr_t *addr)
 {
@@ -1178,6 +1512,17 @@ netif_loop_output_ipv4(struct netif *netif, struct pbuf *p, const ip4_addr_t *ad
 #endif /* LWIP_IPV4 */
 
 #if LWIP_IPV6
+/*********************************************************************************************************
+** 函数名称: netif_loop_output_ipv4
+** 功能描述: 在 IPv6 网络中，向指定的回环网络接口中发送一个数据包，如果是多线程环境，在发送完数据后
+**         : 还要触发指定线程执行数据接收回调函数
+** 输	 入: netif - 回环网络接口指针
+**		   : p - 要发送的数据包指针
+**         : addr - 回环网络 IPv6 地址
+** 输	 出: err_t - 执行状态
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static err_t
 netif_loop_output_ipv6(struct netif *netif, struct pbuf *p, const ip6_addr_t *addr)
 {
@@ -1194,6 +1539,16 @@ netif_loop_output_ipv6(struct netif *netif, struct pbuf *p, const ip6_addr_t *ad
  * netif_loop_output() are put on a list that is passed to netif->input() by
  * netif_poll().
  */
+/*********************************************************************************************************
+** 函数名称: netif_poll
+** 功能描述: 在单机环境下，用来轮询指定的网络接口上的“回环网络数据包”
+** 注     释: 这个函数是在回调模式下，在接收回环网络数据包时使用，通常在主循环中调用。lwip 协议栈除了支持
+**         : 符合单机环境的回调模式，还支持符合系统环境的多线程模式
+** 输	 入: netif - 要轮询的网络接口指针
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 netif_poll(struct netif *netif)
 {
@@ -1206,19 +1561,31 @@ netif_poll(struct netif *netif)
   struct netif *stats_if = netif;
 #endif /* LWIP_HAVE_LOOPIF */
 #endif /* MIB2_STATS */
+
   SYS_ARCH_DECL_PROTECT(lev);
 
   LWIP_ASSERT("netif_poll: invalid netif", netif != NULL);
 
   /* Get a packet from the list. With SYS_LIGHTWEIGHT_PROT=1, this is protected */
   SYS_ARCH_PROTECT(lev);
+
+  /* 从 netif->loop_first 链表头开始遍历每一个回环网络上接收到的 pbuf，然后以“数据帧”为单位
+   * 向下区数据，并把取到的数据发送到协议栈的                     IP 层进行处理 */
   while (netif->loop_first != NULL) {
+  	
+  	/* 分别记录一个完成数据帧对应的 pbuf 链表的链表头位置和链表尾位置 */
     struct pbuf *in, *in_end;
+	
 #if LWIP_LOOPBACK_MAX_PBUFS
+    /* 记录一个完成数据帧对应的 pbuf 链表的链表长度 */
     u8_t clen = 1;
 #endif /* LWIP_LOOPBACK_MAX_PBUFS */
 
     in = in_end = netif->loop_first;
+
+    /* 一个完整的数据帧可能由多个 pbuf              组成，形成一个链表，这个位置通过
+     * in_end->len != in_end->tot_len 两个变量的值来找到当前完成数据帧所
+     * 对应的 pbuf 链表的尾部成员位置，并统计当前数据帧链表长度 */
     while (in_end->len != in_end->tot_len) {
       LWIP_ASSERT("bogus pbuf: len != tot_len but next == NULL!", in_end->next != NULL);
       in_end = in_end->next;
@@ -1226,6 +1593,7 @@ netif_poll(struct netif *netif)
       clen++;
 #endif /* LWIP_LOOPBACK_MAX_PBUFS */
     }
+	
 #if LWIP_LOOPBACK_MAX_PBUFS
     /* adjust the number of pbufs on queue */
     LWIP_ASSERT("netif->loop_cnt_current underflow",
@@ -1234,6 +1602,7 @@ netif_poll(struct netif *netif)
 #endif /* LWIP_LOOPBACK_MAX_PBUFS */
 
     /* 'in_end' now points to the last pbuf from 'in' */
+    /* 移除一个完成数据帧对应的 pbuf 后，调整当前网络接口的 netif->loop_first = netif->loop_last */
     if (in_end == netif->loop_last) {
       /* this was the last pbuf in the list */
       netif->loop_first = netif->loop_last = NULL;
@@ -1242,19 +1611,24 @@ netif_poll(struct netif *netif)
       netif->loop_first = in_end->next;
       LWIP_ASSERT("should not be null since first != last!", netif->loop_first != NULL);
     }
+	
     /* De-queue the pbuf from its successors on the 'loop_' list. */
     in_end->next = NULL;
     SYS_ARCH_UNPROTECT(lev);
 
+	/* 设置接收数据包的网络接口号 */
     in->if_idx = netif_get_index(netif);
 
     LINK_STATS_INC(link.recv);
     MIB2_STATS_NETIF_ADD(stats_if, ifinoctets, in->tot_len);
     MIB2_STATS_NETIF_INC(stats_if, ifinucastpkts);
+	
     /* loopback packets are always IP packets! */
+	/* 将接收的数据包向上发送到协议栈的 IP 层 */
     if (ip_input(in, netif) != ERR_OK) {
       pbuf_free(in);
     }
+	
     SYS_ARCH_PROTECT(lev);
   }
   SYS_ARCH_UNPROTECT(lev);
@@ -1264,6 +1638,16 @@ netif_poll(struct netif *netif)
 /**
  * Calls netif_poll() for every netif on the netif_list.
  */
+/*********************************************************************************************************
+** 函数名称: netif_poll_all
+** 功能描述: 在单机环境下，用来轮询当前系统内“所有”的网络接口上的“回环网络数据包”
+** 注	 释: 这个函数是在回调模式下，在接收回环网络数据包时使用，通常在主循环中调用。lwip 协议栈除了支持
+**		   : 符合单机环境的回调模式，还支持符合系统环境的多线程模式
+** 输	 入: netif - 要轮询的网络接口指针
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 netif_poll_all(void)
 {
@@ -1283,6 +1667,16 @@ netif_poll_all(void)
  * Returned value is an index in mentioned array.
  * @see LWIP_NUM_NETIF_CLIENT_DATA
  */
+/*********************************************************************************************************
+** 函数名称: netif_alloc_client_data_id
+** 功能描述: 申请一个有效的 netif_client_id，用来在 struct netif->client_data 数组中存储数据时寻址使用
+** 注     释: 因为系统中默认会占用 LWIP_NETIF_CLIENT_DATA_INDEX_MAX 个 client_id，所以我们只能申请在
+**         : LWIP_NETIF_CLIENT_DATA_INDEX_MAX 之后的 client_id，所以在返回值的时候要加上这个偏移量
+** 输	 入: 
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 u8_t
 netif_alloc_client_data_id(void)
 {
@@ -1615,6 +2009,14 @@ netif_null_output_ip6(struct netif *netif, struct pbuf *p, const ip6_addr_t *ipa
 #if LWIP_IPV4
 /** Dummy IPv4 output function for netifs not supporting IPv4
  */
+/*********************************************************************************************************
+** 函数名称: netif_null_output_ip4
+** 功能描述: 在不支持 IPv4 协议时，发送数据使用这个“假的”函数指针
+** 输	 入: 
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static err_t
 netif_null_output_ip4(struct netif *netif, struct pbuf *p, const ip4_addr_t *ipaddr)
 {
@@ -1633,6 +2035,14 @@ netif_null_output_ip4(struct netif *netif, struct pbuf *p, const ip4_addr_t *ipa
 *
 * @param name the name of the netif
 */
+/*********************************************************************************************************
+** 函数名称: netif_name_to_index
+** 功能描述: 通过指定的网络接口名获取与其对应的网络接口号
+** 输	 入: name - 网络接口名
+** 输	 出: u8_t - 网络接口号
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 u8_t
 netif_name_to_index(const char *name)
 {
@@ -1652,6 +2062,16 @@ netif_name_to_index(const char *name)
 * @param idx the interface index of the netif
 * @param name char buffer of at least NETIF_NAMESIZE bytes
 */
+/*********************************************************************************************************
+** 函数名称: netif_index_to_name
+** 功能描述: 通过指定的网络接口号获取与其对应的网络接口名
+** 输	 入: idx - 网络接口号
+**         : name - 存储网络接口名的缓冲区
+** 输	 出: name - 网络接口名
+**         : NULL - 获取失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 char *
 netif_index_to_name(u8_t idx, char *name)
 {
@@ -1672,6 +2092,15 @@ netif_index_to_name(u8_t idx, char *name)
 *
 * @param idx index of netif to find
 */
+/*********************************************************************************************************
+** 函数名称: netif_get_by_index
+** 功能描述: 通过指定的网络接口号获取与其对应的网络接口结构体
+** 输	 入: idx - 网络接口号
+** 输	 出: netif - 网络接口结构体
+**		   : NULL - 获取失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 struct netif *
 netif_get_by_index(u8_t idx)
 {
@@ -1697,6 +2126,15 @@ netif_get_by_index(u8_t idx)
  * @param name the name of the netif (like netif->name) plus concatenated number
  * in ascii representation (e.g. 'en0')
  */
+/*********************************************************************************************************
+** 函数名称: netif_find
+** 功能描述: 通过指定的字符串格式名字找到与其对应的网络接口指针
+** 输	 入: name - 要查找的网络接口名，字符串格式，例如：name = "en1"
+** 输	 出: netif - 查找到的网络接口指针
+**         : NULL - 当前系统内没有这个名字的网络接口
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 struct netif *
 netif_find(const char *name)
 {
@@ -1709,6 +2147,7 @@ netif_find(const char *name)
     return NULL;
   }
 
+  /* 把网络接口名中的数组部分从字符串格式转换成与其对应的数值格式 */
   num = (u8_t)atoi(&name[2]);
 
   NETIF_FOREACH(netif) {
@@ -1730,6 +2169,14 @@ netif_find(const char *name)
  * @param callback pointer to listener structure
  * @param fn callback function
  */
+/*********************************************************************************************************
+** 函数名称: netif_add_ext_callback
+** 功能描述: 向当前系统 ext_callback 链表中添加一个指定的回调函数指针（插在链表头）
+** 输	 入: callback - 要移除的回调函数指针
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 netif_add_ext_callback(netif_ext_callback_t *callback, netif_ext_callback_fn fn)
 {
@@ -1747,6 +2194,14 @@ netif_add_ext_callback(netif_ext_callback_t *callback, netif_ext_callback_fn fn)
  * Remove extended netif events listener
  * @param callback pointer to listener structure
  */
+/*********************************************************************************************************
+** 函数名称: netif_remove_ext_callback
+** 功能描述: 从当前系统 ext_callback 链表中移除指定的回调函数指针
+** 输	 入: callback - 要移除的回调函数指针
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 netif_remove_ext_callback(netif_ext_callback_t* callback)
 {
@@ -1780,6 +2235,16 @@ netif_remove_ext_callback(netif_ext_callback_t* callback)
  * @param reason change reason
  * @param args depends on reason, see reason description
  */
+/*********************************************************************************************************
+** 函数名称: netif_invoke_ext_callback
+** 功能描述: 分别向当前系统 ext_callback 中的每个回调函数发送一个指定的事件
+** 输	 入: netif - 产生事件的网络接口指针
+**		   : reason - 产生事件的原因
+**		   : args - 和事件相关参数
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 netif_invoke_ext_callback(struct netif *netif, netif_nsc_reason_t reason, const netif_ext_callback_args_t *args)
 {

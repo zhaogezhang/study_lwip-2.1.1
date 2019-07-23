@@ -116,6 +116,7 @@ enum snmp_ifType {
  * @param type one of enum @ref snmp_ifType
  * @param speed your link speed here (units: bits per second)
  */
+/* 初始化 MIB2 管理信息库（manage information base）相关结构信息 */
 #define MIB2_INIT_NETIF(netif, type, speed) do { \
   (netif)->link_type = (type);  \
   (netif)->link_speed = (speed);\

@@ -88,6 +88,7 @@ enum etharp_state {
 };
 
 struct etharp_entry {
+/* 表示在进行 arp 地址解析期间，是否需要通过队列方式缓存多个发往这个 ip 上的数据包 */
 #if ARP_QUEUEING
   /** Pointer to queue of pending outgoing packets on this ARP entry. */
   struct etharp_q_entry *q;
@@ -95,6 +96,7 @@ struct etharp_entry {
   /** Pointer to a single pending outgoing packet on this ARP entry. */
   struct pbuf *q;
 #endif /* ARP_QUEUEING */
+
   ip4_addr_t ipaddr;
   struct netif *netif;
   struct eth_addr ethaddr;
@@ -102,6 +104,7 @@ struct etharp_entry {
   u8_t state;
 };
 
+/* 当前系统内所有网络接口共用的 arp 缓存数组 */
 static struct etharp_entry arp_table[ARP_TABLE_SIZE];
 
 #if !LWIP_NETIF_HWADDRHINT
@@ -143,6 +146,14 @@ static err_t etharp_raw(struct netif *netif,
  *
  * @param q a qeueue of etharp_q_entry's to free
  */
+/*********************************************************************************************************
+** 函数名称: free_etharp_q
+** 功能描述: 释放指定的 arp 缓存队列中所有的还没有发出的 pbuf 数据结构
+** 输	 入: q - arp 缓存队列指针
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void
 free_etharp_q(struct etharp_q_entry *q)
 {
@@ -164,6 +175,14 @@ free_etharp_q(struct etharp_q_entry *q)
 #endif /* ARP_QUEUEING */
 
 /** Clean up ARP table entries */
+/*********************************************************************************************************
+** 函数名称: etharp_free_entry
+** 功能描述: 回收指定索引的 arp 缓存项
+** 输	 入: i - 需要回收的 arp 缓存项索引值
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void
 etharp_free_entry(int i)
 {
@@ -555,6 +574,14 @@ etharp_remove_static_entry(const ip4_addr_t *ipaddr)
  *
  * @param netif points to a network interface
  */
+/*********************************************************************************************************
+** 函数名称: etharp_cleanup_netif
+** 功能描述: 清空系统内和指定网络接口相关的所有 arp 缓存项
+** 输	 入: netif - 需要清空 arp 数据的网络结构指针
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 etharp_cleanup_netif(struct netif *netif)
 {

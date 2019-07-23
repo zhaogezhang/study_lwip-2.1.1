@@ -51,6 +51,7 @@ extern "C" {
  * IP address types for use in ip_addr_t.type member.
  * @see tcp_new_ip_type(), udp_new_ip_type(), raw_new_ip_type().
  */
+/* 定义系统支持的 IP 地址类型标志变量 */
 enum lwip_ip_addr_type {
   /** IPv4 */
   IPADDR_TYPE_V4 =   0U,
@@ -66,6 +67,7 @@ enum lwip_ip_addr_type {
  * A union struct for both IP version's addresses.
  * ATTENTION: watch out for its size when adding IPv6 address scope!
  */
+/* 如果当前协议栈同时支持 IPv4 和 IPv6，则把 IP 地址变量设置成联合体类型，来同时支持两种场景 */
 typedef struct ip_addr {
   union {
     ip6_addr_t ip6;
@@ -78,8 +80,11 @@ typedef struct ip_addr {
 extern const ip_addr_t ip_addr_any_type;
 
 /** @ingroup ip4addr */
+/* 初始化一个 IPv4 类型的 IP 地址，参数 u32val 表示的是要设置的 IP 地址值 */
 #define IPADDR4_INIT(u32val)          { { { { u32val, 0ul, 0ul, 0ul } IPADDR6_ZONE_INIT } }, IPADDR_TYPE_V4 }
+
 /** @ingroup ip4addr */
+/* 按照“点”表示法初始化一个 IPv4 类型的 IP 地址，参数 a,b,c,d 分别表示“点”表示法中每个域的值 */
 #define IPADDR4_INIT_BYTES(a,b,c,d)   IPADDR4_INIT(PP_HTONL(LWIP_MAKEU32(a,b,c,d)))
 
 /** @ingroup ip6addr */
@@ -88,6 +93,7 @@ extern const ip_addr_t ip_addr_any_type;
 #define IPADDR6_INIT_HOST(a, b, c, d) { { { { PP_HTONL(a), PP_HTONL(b), PP_HTONL(c), PP_HTONL(d) } IPADDR6_ZONE_INIT } }, IPADDR_TYPE_V6 }
 
 /** @ingroup ipaddr */
+/* 判断 IP 地址“类型”字段相关接口 */
 #define IP_IS_ANY_TYPE_VAL(ipaddr)    (IP_GET_TYPE(&ipaddr) == IPADDR_TYPE_ANY)
 /** @ingroup ipaddr */
 #define IPADDR_ANY_TYPE_INIT          { { { { 0ul, 0ul, 0ul, 0ul } IPADDR6_ZONE_INIT } }, IPADDR_TYPE_ANY }
@@ -101,6 +107,7 @@ extern const ip_addr_t ip_addr_any_type;
 /** @ingroup ip6addr */
 #define IP_IS_V6(ipaddr)              (((ipaddr) != NULL) && IP_IS_V6_VAL(*(ipaddr)))
 
+/* 读写 IP 地址“类型”字段相关接口 */
 #define IP_SET_TYPE_VAL(ipaddr, iptype) do { (ipaddr).type = (iptype); }while(0)
 #define IP_SET_TYPE(ipaddr, iptype)     do { if((ipaddr) != NULL) { IP_SET_TYPE_VAL(*(ipaddr), iptype); }}while(0)
 #define IP_GET_TYPE(ipaddr)           ((ipaddr)->type)
@@ -113,10 +120,13 @@ extern const ip_addr_t ip_addr_any_type;
 /** @ingroup ip6addr
  * Convert generic ip address to specific protocol version
  */
+/* 获取 IPv6 版本的 IP 地址值 */
 #define ip_2_ip6(ipaddr)   (&((ipaddr)->u_addr.ip6))
+
 /** @ingroup ip4addr
  * Convert generic ip address to specific protocol version
  */
+/* 获取 IPv4 版本的 IP 地址值 */
 #define ip_2_ip4(ipaddr)   (&((ipaddr)->u_addr.ip4))
 
 /** @ingroup ip4addr */

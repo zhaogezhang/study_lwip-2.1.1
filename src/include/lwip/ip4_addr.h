@@ -48,6 +48,7 @@ extern "C" {
 
 /** This is the aligned version of ip4_addr_t,
    used as local variable, on the stack, etc. */
+/* IPv4 地址变量表示方式 */
 struct ip4_addr {
   u32_t addr;
 };
@@ -59,19 +60,30 @@ typedef struct ip4_addr ip4_addr_t;
 /* Forward declaration to not include netif.h */
 struct netif;
 
-/** 255.255.255.255 */
+/* 定义协议栈中常用的几个 IP 地址对应的数值 */
+/** 表示无效的 IP 地址：255.255.255.255 */
 #define IPADDR_NONE         ((u32_t)0xffffffffUL)
-/** 127.0.0.1 */
+
+/** 表示回环网络 IP 地址：127.0.0.1 */
 #define IPADDR_LOOPBACK     ((u32_t)0x7f000001UL)
-/** 0.0.0.0 */
+
+/** 表示任何网络 IP 地址：0.0.0.0 */
 #define IPADDR_ANY          ((u32_t)0x00000000UL)
-/** 255.255.255.255 */
+
+/** 表示广播 IP 地址：255.255.255.255 */
 #define IPADDR_BROADCAST    ((u32_t)0xffffffffUL)
 
 /* Definitions of the bits in an Internet address integer.
 
    On subnets, host and network parts are found according to
    the subnet mask, not these masks.  */
+
+/* 下面的宏定义分别定义了四类网络地址相关信息，具体内容分别包括：
+ * IP_CLASSx 用来判断指定的 IP 地址是否是相对应的“地址类”，目前常用网络地址一共有 A、B、C、D 四类
+ * IP_CLASSx_NET 用来表示指定的“地址类”中，网络地址域掩码值
+ * IP_CLASSx_NSHIFT 用来表示指定的“地址类”中，网络地址域掩码域“位”偏移量 
+ * IP_CLASSx_HOST 用来表示指定的“地址类”中，主机地址域掩码值
+ * IP_CLASSx_MAX 用来表示指定的“地址类”中，主机地址域最大合法值 */
 #define IP_CLASSA(a)        ((((u32_t)(a)) & 0x80000000UL) == 0)
 #define IP_CLASSA_NET       0xff000000
 #define IP_CLASSA_NSHIFT    24
@@ -101,6 +113,7 @@ struct netif;
 #define IP_LOOPBACKNET      127                 /* official! */
 
 /** Set an IP address given by the four byte-parts */
+/* 通过“点”表示法设置 IPv4 地址值，最后的地址值表现为网络字节序 */
 #define IP4_ADDR(ipaddr, a,b,c,d)  (ipaddr)->addr = PP_HTONL(LWIP_MAKEU32(a,b,c,d))
 
 /** Copy IP address - faster than ip4_addr_set: no NULL check */
@@ -173,18 +186,22 @@ u8_t ip4_addr_netmask_valid(u32_t netmask);
                       ip4_addr4_16_val(ipaddr))
 
 /* Get one byte from the 4-byte address */
+/* 获取 IPv4 类型地址中，按照“点”表示法时，某个“域”字节数据值，传入的 IP 地址参数为“指针”类型 */
 #define ip4_addr_get_byte(ipaddr, idx) (((const u8_t*)(&(ipaddr)->addr))[idx])
 #define ip4_addr1(ipaddr) ip4_addr_get_byte(ipaddr, 0)
 #define ip4_addr2(ipaddr) ip4_addr_get_byte(ipaddr, 1)
 #define ip4_addr3(ipaddr) ip4_addr_get_byte(ipaddr, 2)
 #define ip4_addr4(ipaddr) ip4_addr_get_byte(ipaddr, 3)
+
 /* Get one byte from the 4-byte address, but argument is 'ip4_addr_t',
  * not a pointer */
+/* 获取 IPv4 类型地址中，按照“点”表示法时，某个“域”字节数据值，传入的 IP 地址参数为“变量值”类型 */
 #define ip4_addr_get_byte_val(ipaddr, idx) ((u8_t)(((ipaddr).addr >> (idx * 8)) & 0xff))
 #define ip4_addr1_val(ipaddr) ip4_addr_get_byte_val(ipaddr, 0)
 #define ip4_addr2_val(ipaddr) ip4_addr_get_byte_val(ipaddr, 1)
 #define ip4_addr3_val(ipaddr) ip4_addr_get_byte_val(ipaddr, 2)
 #define ip4_addr4_val(ipaddr) ip4_addr_get_byte_val(ipaddr, 3)
+
 /* These are cast to u16_t, with the intent that they are often arguments
  * to printf using the U16_F format from cc.h. */
 #define ip4_addr1_16(ipaddr) ((u16_t)ip4_addr1(ipaddr))

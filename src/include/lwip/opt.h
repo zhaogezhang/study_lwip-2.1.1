@@ -632,6 +632,7 @@
 /**
  * ARP_TABLE_SIZE: Number of active MAC-IP address pairs cached.
  */
+/* 这个表示的是系统内所有网络接口共用的 arp 缓存数组大小 */
 #if !defined ARP_TABLE_SIZE || defined __DOXYGEN__
 #define ARP_TABLE_SIZE                  10
 #endif
@@ -651,6 +652,11 @@
  * startup time. Set this to 1 if you know your application sends more than one
  * packet in a row to an IP address that is not in the ARP cache.
  */
+/* 如果设置  ARP_QUEUEING==1，表示在进行 arp 地址解析期间，协议栈可以通过队列的方式
+ * 缓存多个数据包在 etharp_entry 中，这样可以保证在 arp 没有命中的时候，应用层即使
+ * 连续发送多个数据包到这个 ip 地址上，也不会出现数据丢包，如果设置 ARP_QUEUEING==0
+ * 则表示只会保留最新的那个数据包，所以如果应用层连续发送多个数据包到这个 ip 地址上
+ * 会出现丢包现象 */
 #if !defined ARP_QUEUEING || defined __DOXYGEN__
 #define ARP_QUEUEING                    0
 #endif
@@ -1578,6 +1584,7 @@
  * LWIP_SINGLE_NETIF==1: use a single netif only. This is the common case for
  * small real-life targets. Some code like routing etc. can be left out.
  */
+/* 如果 LWIP_SINGLE_NETIF==1，表示当前系统是否只支持一个网络接口，即不支持多网口功能 */
 #if !defined LWIP_SINGLE_NETIF || defined __DOXYGEN__
 #define LWIP_SINGLE_NETIF               0
 #endif
@@ -2276,6 +2283,7 @@
  * per netif.
  * ATTENTION: if enabled, the CHECKSUM_GEN_* and CHECKSUM_CHECK_* defines must be enabled!
  */
+/* 表示是否需要对发送和接收的不同类型数据包生成或者校验“校验和”字段数据内容 */
 #if !defined LWIP_CHECKSUM_CTRL_PER_NETIF || defined __DOXYGEN__
 #define LWIP_CHECKSUM_CTRL_PER_NETIF    0
 #endif

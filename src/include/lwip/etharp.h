@@ -85,6 +85,7 @@ err_t etharp_request(struct netif *netif, const ip4_addr_t *ipaddr);
  *  this is an ARP packet sent by a node in order to spontaneously cause other
  *  nodes to update an entry in their ARP cache.
  *  From RFC 3220 "IP Mobility Support for IPv4" section 4.6. */
+/* 为指定 IPv4 地址发送一个 "gratuitous ARP" 信息，接收到这个信息的设备节点会更新 arp 映射表信息到当前地址值 */
 #define etharp_gratuitous(netif) etharp_request((netif), netif_ip4_addr(netif))
 void etharp_cleanup_netif(struct netif *netif);
 

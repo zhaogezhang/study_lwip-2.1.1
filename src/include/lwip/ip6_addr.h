@@ -56,6 +56,7 @@ extern "C" {
 
 /** This is the aligned version of ip6_addr_t,
     used as local variable, on the stack, etc. */
+/* IPv6 地址变量表示方式 */
 struct ip6_addr {
   u32_t addr[4];
 #if LWIP_IPV6_SCOPES

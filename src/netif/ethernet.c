@@ -60,6 +60,7 @@
 #include LWIP_HOOK_FILENAME
 #endif
 
+/* 定义两个常用的以太网地址 */
 const struct eth_addr ethbroadcast = {{0xff, 0xff, 0xff, 0xff, 0xff, 0xff}};
 const struct eth_addr ethzero = {{0, 0, 0, 0, 0, 0}};
 
@@ -77,6 +78,16 @@ const struct eth_addr ethzero = {{0, 0, 0, 0, 0, 0}};
  * @see ETHARP_SUPPORT_VLAN
  * @see LWIP_HOOK_VLAN_CHECK
  */
+/*********************************************************************************************************
+** 函数名称: ethernet_input
+** 功能描述: 处理网卡驱动接收到的数据帧的以太网“协议头”部分数据，并根据数据帧“类型”字段内容分发数据包
+**         : 到不同协议模块进行下一步处理
+** 输	 入: p - 网卡驱动接收到的数据帧
+**		   : netif - 接收到数据帧的网络接口指针
+** 输	 出: err_t - 操作状态
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 err_t
 ethernet_input(struct pbuf *p, struct netif *netif)
 {
@@ -88,6 +99,7 @@ ethernet_input(struct pbuf *p, struct netif *netif)
 
   LWIP_ASSERT_CORE_LOCKED();
 
+  /* 接收到一个无效的以太网数据帧，释放数据帧的 pbuf 结构并返回 */
   if (p->len <= SIZEOF_ETH_HDR) {
     /* a packet with only an ethernet header (or less) is not valid for us */
     ETHARP_STATS_INC(etharp.proterr);
@@ -96,6 +108,7 @@ ethernet_input(struct pbuf *p, struct netif *netif)
     goto free_and_return;
   }
 
+  /* 处理接收到数据帧的网络接口的网络接口号 */
   if (p->if_idx == NETIF_NO_INDEX) {
     p->if_idx = netif_get_index(netif);
   }
@@ -111,10 +124,13 @@ ethernet_input(struct pbuf *p, struct netif *netif)
                lwip_htons(ethhdr->type)));
 
   type = ethhdr->type;
+  
 #if ETHARP_SUPPORT_VLAN
   if (type == PP_HTONS(ETHTYPE_VLAN)) {
     struct eth_vlan_hdr *vlan = (struct eth_vlan_hdr *)(((char *)ethhdr) + SIZEOF_ETH_HDR);
     next_hdr_offset = SIZEOF_ETH_HDR + SIZEOF_VLAN_HDR;
+
+	/* 接收到一个无效的以太网数据帧，释放数据帧的 pbuf 结构并返回 */
     if (p->len <= SIZEOF_ETH_HDR + SIZEOF_VLAN_HDR) {
       /* a packet with only an ethernet/vlan header (or less) is not valid for us */
       ETHARP_STATS_INC(etharp.proterr);
@@ -123,6 +139,7 @@ ethernet_input(struct pbuf *p, struct netif *netif)
       goto free_and_return;
     }
 #if defined(LWIP_HOOK_VLAN_CHECK) || defined(ETHARP_VLAN_CHECK) || defined(ETHARP_VLAN_CHECK_FN) /* if not, allow all VLANs */
+
 #ifdef LWIP_HOOK_VLAN_CHECK
     if (!LWIP_HOOK_VLAN_CHECK(netif, ethhdr, vlan)) {
 #elif defined(ETHARP_VLAN_CHECK_FN)
@@ -134,7 +151,9 @@ ethernet_input(struct pbuf *p, struct netif *netif)
       pbuf_free(p);
       return ERR_OK;
     }
+	
 #endif /* defined(LWIP_HOOK_VLAN_CHECK) || defined(ETHARP_VLAN_CHECK) || defined(ETHARP_VLAN_CHECK_FN) */
+
     type = vlan->tpid;
   }
 #endif /* ETHARP_SUPPORT_VLAN */
@@ -143,6 +162,8 @@ ethernet_input(struct pbuf *p, struct netif *netif)
   netif = LWIP_ARP_FILTER_NETIF_FN(p, netif, lwip_htons(type));
 #endif /* LWIP_ARP_FILTER_NETIF*/
 
+  /* 如果接收到的数据包目的 MAC 地址是多播或者广播地址类型，则在这个数据包的
+   * flags 中添加相应的标志变量（有关多播 MAC 地址内容见 ethernet.h 文件）*/
   if (ethhdr->dest.addr[0] & 1) {
     /* this might be a multicast or broadcast packet */
     if (ethhdr->dest.addr[0] == LL_IP4_MULTICAST_ADDR_0) {
@@ -167,6 +188,7 @@ ethernet_input(struct pbuf *p, struct netif *netif)
     }
   }
 
+  /* 根据以太网数据帧“类型”分发数据帧 */
   switch (type) {
 #if LWIP_IPV4 && LWIP_ARP
     /* IP packet? */
@@ -206,6 +228,7 @@ ethernet_input(struct pbuf *p, struct netif *netif)
       }
       break;
 #endif /* LWIP_IPV4 && LWIP_ARP */
+
 #if PPPOE_SUPPORT
     case PP_HTONS(ETHTYPE_PPPOEDISC): /* PPP Over Ethernet Discovery Stage */
       pppoe_disc_input(netif, p);
@@ -266,6 +289,18 @@ free_and_return:
  * @param eth_type ethernet type (@ref lwip_ieee_eth_type)
  * @return ERR_OK if the packet was sent, any other err_t on failure
  */
+/*********************************************************************************************************
+** 函数名称: ethernet_output
+** 功能描述: 把上层传下来的、待发送的数据包添加上以太网“协议头”，然后通过网卡驱动发送出去
+** 输	 入: netif - 要发送以太网数据包的网络接口
+**		   : p - 要发送以太网数据包
+**		   : src - 要发送以太网数据包的源 MAC 地址
+**		   : dst - 要发送以太网数据包的目的 MAC 地址
+**         : eth_type - 要发送的以太网数据帧类型
+** 输	 出: err_t - 操作状态
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 err_t
 ethernet_output(struct netif * netif, struct pbuf * p,
                 const struct eth_addr * src, const struct eth_addr * dst,
@@ -273,6 +308,7 @@ ethernet_output(struct netif * netif, struct pbuf * p,
   struct eth_hdr *ethhdr;
   u16_t eth_type_be = lwip_htons(eth_type);
 
+/* 把指定的 pbuf 负载数据指针向前调整，用来存储以太网数据帧“帧头部”数据 */
 #if ETHARP_SUPPORT_VLAN && defined(LWIP_HOOK_VLAN_SET)
   s32_t vlan_prio_vid = LWIP_HOOK_VLAN_SET(netif, p, src, dst, eth_type);
   if (vlan_prio_vid >= 0) {
@@ -298,6 +334,7 @@ ethernet_output(struct netif * netif, struct pbuf * p,
 
   LWIP_ASSERT_CORE_LOCKED();
 
+  /* 添加以太网数据帧“帧头”数据 */
   ethhdr = (struct eth_hdr *)p->payload;
   ethhdr->type = eth_type_be;
   SMEMCPY(&ethhdr->dest, dst, ETH_HWADDR_LEN);
@@ -309,6 +346,7 @@ ethernet_output(struct netif * netif, struct pbuf * p,
               ("ethernet_output: sending packet %p\n", (void *)p));
 
   /* send the packet */
+  /* 把组装好的以太网数据帧通过网卡驱动发送出去 */
   return netif->linkoutput(netif, p);
 
 pbuf_header_failed:

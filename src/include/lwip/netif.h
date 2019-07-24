@@ -170,6 +170,7 @@ struct netif;
 
 /** MAC Filter Actions, these are passed to a netif's igmp_mac_filter or
  * mld_mac_filter callback function. */
+/* 表示协议栈在多播功能中，可以对 MAC 过滤地址表执行的操作类型 */
 enum netif_mac_filter_action {
   /** Delete a filter entry */
   NETIF_DEL_MAC_FILTER = 0,
@@ -254,6 +255,7 @@ u8_t netif_alloc_client_data_id(void);
 #define netif_get_client_data(netif, id)       (netif)->client_data[(id)]
 #endif
 
+/* 根据 arp 地址映射表的大小定义 arp 映射项索引变量类型及有效索引边界值 */
 #if (LWIP_IPV4 && LWIP_ARP && (ARP_TABLE_SIZE > 0x7f)) || (LWIP_IPV6 && (LWIP_ND6_NUM_DESTINATIONS > 0x7f))
 typedef u16_t netif_addr_idx_t;
 #define NETIF_ADDR_IDX_MAX 0x7FFF
@@ -262,6 +264,10 @@ typedef u8_t netif_addr_idx_t;
 #define NETIF_ADDR_IDX_MAX 0x7F
 #endif
 
+/* LWIP_NETIF_HWADDRHINT==1 表示在 struct netif 结构体中会缓存上一次使用的 arp 地址映射数据
+ * 在 arp 地址表（一个全局数组）中的索引，这样如果我们持续和同一个机器通信，就不需要重新扫描
+ * arp 地址表来查询地址映射关系了，这样在 arp 地址表比较大的时候会提高效率，但是，如果我们是
+ * 和多个机器交叉通信，且 arp 地址表比较小，那么启用这个选项可能会降低效率 */
 #if LWIP_NETIF_HWADDRHINT
 #define LWIP_NETIF_USE_HINTS              1
 struct netif_hint {
@@ -363,24 +369,32 @@ struct netif {
 #ifdef netif_get_client_data
   void* client_data[LWIP_NETIF_CLIENT_DATA_INDEX_MAX + LWIP_NUM_NETIF_CLIENT_DATA];
 #endif
+
 #if LWIP_NETIF_HOSTNAME
   /* the hostname for this netif, NULL is a valid value */
   const char*  hostname;
 #endif /* LWIP_NETIF_HOSTNAME */
+
+/* 表示是否需要对发送和接收的不同类型数据包生成或者校验“校验和”字段数据内容 */
 #if LWIP_CHECKSUM_CTRL_PER_NETIF
   u16_t chksum_flags;
 #endif /* LWIP_CHECKSUM_CTRL_PER_NETIF*/
+
   /** maximum transfer unit (in bytes) */
   u16_t mtu;
 #if LWIP_IPV6 && LWIP_ND6_ALLOW_RA_UPDATES
   /** maximum transfer unit (in bytes), updated by RA */
   u16_t mtu6;
 #endif /* LWIP_IPV6 && LWIP_ND6_ALLOW_RA_UPDATES */
+
   /** link level hardware address of this interface */
+  /* 当前网络接口的（物理/MAC）地址*/
   u8_t hwaddr[NETIF_MAX_HWADDR_LEN];
+
   /** number of bytes used in hwaddr */
   u8_t hwaddr_len;
-  /** flags (@see @ref netif_flags) */
+  
+  /** flags (@see @ref netif_flags) 传送阵 - NETIF_FLAG_UP */
   u8_t flags;
 
   /** descriptive abbreviation */
@@ -413,16 +427,21 @@ struct netif {
   struct stats_mib2_netif_ctrs mib2_counters;
 #endif /* MIB2_STATS */
 
+/* 表示在 IPv4 协议的多播功能中，我们对当前网络接口的 MAC 地址过滤表操作时使用的函数指针 */
 #if LWIP_IPV4 && LWIP_IGMP
   /** This function could be called to add or delete an entry in the multicast
       filter table of the ethernet MAC.*/
   netif_igmp_mac_filter_fn igmp_mac_filter;
 #endif /* LWIP_IPV4 && LWIP_IGMP */
+
+/* 表示在 IPv6 协议的多播功能中，我们对当前网络接口的 MAC 地址过滤表操作时使用的函数指针 */
 #if LWIP_IPV6 && LWIP_IPV6_MLD
   /** This function could be called to add or delete an entry in the IPv6 multicast
       filter table of the ethernet MAC. */
   netif_mld_mac_filter_fn mld_mac_filter;
 #endif /* LWIP_IPV6 && LWIP_IPV6_MLD */
+
+/* 记录当前网络接口上一次通信使用的 arp 地址映射项在 arp 地址映射表（是一个全局数组）中的索引值 */
 #if LWIP_NETIF_USE_HINTS
   struct netif_hint *hints;
 #endif /* LWIP_NETIF_USE_HINTS */

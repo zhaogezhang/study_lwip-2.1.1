@@ -54,6 +54,16 @@ const ip_addr_t ip_addr_broadcast = IPADDR4_INIT(IPADDR_BROADCAST);
  * @param netif the network interface against which the address is checked
  * @return returns non-zero if the address is a broadcast address
  */
+/*********************************************************************************************************
+** 函数名称: ip4_addr_isbroadcast_u32
+** 功能描述: 判断指定的 IPv4 地址在指定的网络接口上是否是广播地址
+** 输	 入: addr - 需要判断的 IPv4 地址
+**         : netif - 需要判断的网络接口指针
+** 输	 出: 1 - 是广播地址
+**         : 0 - 不是广播地址
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 u8_t
 ip4_addr_isbroadcast_u32(u32_t addr, const struct netif *netif)
 {
@@ -78,6 +88,7 @@ ip4_addr_isbroadcast_u32(u32_t addr, const struct netif *netif)
              && ((addr & ~ip4_addr_get_u32(netif_ip4_netmask(netif))) ==
                  (IPADDR_BROADCAST & ~ip4_addr_get_u32(netif_ip4_netmask(netif))))) {
     /* => network broadcast address */
+    /* 在同一个子网中并且主机地址全为 1，表示是广播地址 */
     return 1;
   } else {
     return 0;

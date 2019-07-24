@@ -42,7 +42,20 @@
  * This file is part of the lwIP TCP/IP stack.
  *
  */
-
+/* arp 协议数据包格式定义如下：
+ *
+ *      dhost     shost     type   ar_hrd ar_pro  ar_hln   ar_pln   ar_op    arp_sha    arp_spa    arp_dha    arp_dpa
+ *   +----------+--------+--------+------+------+--------+--------+--------+----------+----------+----------+----------+
+ *   | 以太网      | 以太网 	 | 帧类型	  | 硬件   | 协议 | 硬件地 | 协议地 | 操作码            | 发送者      | 发送者      | 目标设备		| 目标设备     |
+ *   | 目的地址 | 源地址 |  	          |	类型 | 类型	    | 址长度 | 址长度 |		       | 硬件地址 | IPv4地址 | 硬件地址 | IPv4地址 |
+ *   +----------+--------+--------+------+------+--------+--------+--------+----------+----------+----------+----------+
+ *      6 byte    6 byte   2 byte  2 byte 2 byte  6 byte   4 byte   2 byte    6 byte     4 byte     6 byte     4 byte
+ *
+ *   |<------ ether_header ------>|<------------ arp_header -------------->|
+ *
+ *                                |<---------------------------------- ether_arp ------------------------------------->|
+ *
+ */
 #include "lwip/opt.h"
 
 #if LWIP_IPV4 && LWIP_ARP /* don't build if not configured for use in lwipopts.h */
@@ -63,6 +76,7 @@
 
 /** Re-request a used ARP entry 1 minute before it would expire to prevent
  *  breaking a steadily used connection because the ARP entry timed out. */
+/* 分别定义了单播和广播模式下，请求指定地址的 arp 信息周期 */
 #define ARP_AGE_REREQUEST_USED_UNICAST   (ARP_MAXAGE - 30)
 #define ARP_AGE_REREQUEST_USED_BROADCAST (ARP_MAXAGE - 15)
 
@@ -73,20 +87,29 @@
  *  @internal Keep this number at least 2, otherwise it might
  *  run out instantly if the timeout occurs directly after a request.
  */
+/* 表示当一个 arp 映射项处于 pending 状态下时，如果累计时间超过 ARP_MAXPENDING 时（单位是 arp 定时器超时周期），
+ * 就视为这个 arp 映射项为无效映射，会从 arp 地址映射表中移除 */
 #define ARP_MAXPENDING 5
 
 /** ARP states */
 enum etharp_state {
   ETHARP_STATE_EMPTY = 0,
+
+  /* 在 arp 定时器超时处理函数中，会对处于 pending 状态的 arp 映射项的 IPv4 地址发送一个
+   * arp 查询请求，并且处于         pending 状态的   arp 映射项是不完整的（没有 MAC 地址信息）*/
   ETHARP_STATE_PENDING,
+  
   ETHARP_STATE_STABLE,
   ETHARP_STATE_STABLE_REREQUESTING_1,
   ETHARP_STATE_STABLE_REREQUESTING_2
-#if ETHARP_SUPPORT_STATIC_ENTRIES
+#if ETHARP_SUPPORT_STATIC_ENTRIES  
+  /* 如果某个指定的 arp 映射项被设置为 ETHARP_STATE_STATIC 状态，则表示这个
+   * arp 映射项不会被自动移除、状态也不会被修改而长驻在                        arp 地址映射表中 */
   , ETHARP_STATE_STATIC
 #endif /* ETHARP_SUPPORT_STATIC_ENTRIES */
 };
 
+/* 定义 lwip 协议栈中一个 ARP 地址映射项数据结构 */
 struct etharp_entry {
 /* 表示在进行 arp 地址解析期间，是否需要通过队列方式缓存多个发往这个 ip 上的数据包 */
 #if ARP_QUEUEING
@@ -97,28 +120,54 @@ struct etharp_entry {
   struct pbuf *q;
 #endif /* ARP_QUEUEING */
 
+  /* 表示当前 arp 地址映射项对应的 IPv4 地址 */
   ip4_addr_t ipaddr;
+
+  /* 表示当前 arp 地址映射项所属的网络接口 */
   struct netif *netif;
+
+  /* 表示当前 arp 地址映射项对应的物理地址（网卡 MAC 地址）*/
   struct eth_addr ethaddr;
+
+  /* 表示当前 arp 映射项从上次更新到目前为止，经历的 arp 定时器超时周期数 */
   u16_t ctime;
+
+  /* 表示当前 arp 映射项状态 */
   u8_t state;
 };
 
 /* 当前系统内所有网络接口共用的 arp 缓存数组 */
 static struct etharp_entry arp_table[ARP_TABLE_SIZE];
 
+/* 全局变量，在没有启动 struct netif 结构体中的 hints 字段时，通过这个“本地”全局变量在
+ * arp 功能模块，记录在当前系统的所有网络接口中，上一次通信使用的 arp 地址项在 arp 地址
+ * 表中的索引值 */
 #if !LWIP_NETIF_HWADDRHINT
 static netif_addr_idx_t etharp_cached_entry;
 #endif /* !LWIP_NETIF_HWADDRHINT */
 
 /** Try hard to create a new entry - we want the IP address to appear in
     the cache (even if this means removing an active entry or so). */
+/* 表示在查询 arp 地址映射表的时候，如果没找到我们指定的 IPv4 地址匹配的 arp 映射项，且当前
+ * arp 地址映射表已经满了，则会从中回收一个 arp 映射项，然后为我们指定的 IPv4 地址创建一个
+ * 新的 arp 映射项，在回收 arp 映射项的时候，选择被回收的 arp 映射项顺序如下：
+ * oldest stable entry -> oldest pending entry without queued packets -> oldest pending entry with queued packets */   
 #define ETHARP_FLAG_TRY_HARD     1
+
+/* 表示在查询 arp 地址映射表的时候，如果没找到我们指定的 IPv4 地址匹配的 arp 映射项，则返回
+ * 而不会为我们指定的 IPv4 地址创建一个新的 arp 映射项 */
 #define ETHARP_FLAG_FIND_ONLY    2
+
+/* 如果我们既没有设置 ETHARP_FLAG_TRY_HARD 标志，也没有设置 ETHARP_FLAG_FIND_ONLY 标志，那么
+ * 在没找到我们指定的 IPv4 地址匹配的 arp 映射项时，如果 arp 地址映射表没满，则会为我们指定的
+ * IPv4 地址创建一个新的 arp 映射项 */
+
+
 #if ETHARP_SUPPORT_STATIC_ENTRIES
 #define ETHARP_FLAG_STATIC_ENTRY 4
 #endif /* ETHARP_SUPPORT_STATIC_ENTRIES */
 
+/* 在命中一个 arp 地址项的时候，通过这个宏定义来同步相关数据（(netif)->hints->addr_hint 或者 etharp_cached_entry）*/
 #if LWIP_NETIF_HWADDRHINT
 #define ETHARP_SET_ADDRHINT(netif, addrhint)  do { if (((netif) != NULL) && ((netif)->hints != NULL)) { \
                                               (netif)->hints->addr_hint = (addrhint); }} while(0)
@@ -177,8 +226,8 @@ free_etharp_q(struct etharp_q_entry *q)
 /** Clean up ARP table entries */
 /*********************************************************************************************************
 ** 函数名称: etharp_free_entry
-** 功能描述: 回收指定索引的 arp 缓存项
-** 输	 入: i - 需要回收的 arp 缓存项索引值
+** 功能描述: 回收指定索引的 arp 映射项以及这个映射项数据队里中未发送的数据包
+** 输	 入: i - 需要回收的 arp 映射项索引值
 ** 输	 出: 
 ** 全局变量: 
 ** 调用模块: 
@@ -188,6 +237,7 @@ etharp_free_entry(int i)
 {
   /* remove from SNMP ARP index tree */
   mib2_remove_arp_entry(arp_table[i].netif, &arp_table[i].ipaddr);
+  
   /* and empty packet queue */
   if (arp_table[i].q != NULL) {
     /* remove all queued packets */
@@ -195,6 +245,7 @@ etharp_free_entry(int i)
     free_etharp_q(arp_table[i].q);
     arp_table[i].q = NULL;
   }
+  
   /* recycle entry for re-use */
   arp_table[i].state = ETHARP_STATE_EMPTY;
 #ifdef LWIP_DEBUG
@@ -212,21 +263,38 @@ etharp_free_entry(int i)
  * This function should be called every ARP_TMR_INTERVAL milliseconds (1 second),
  * in order to expire entries in the ARP table.
  */
+/*********************************************************************************************************
+** 函数名称: etharp_tmr
+** 功能描述: arp 模块定时器超时处理函数，会被周期性调度，默认超时周期是 1 秒，在这个函数中会对 arp 映射项
+**         : 执行的操作分别有：1. 把 arp 映射项从 arp 地址映射表中移除
+**         :                   2. 更新 arp 映射项的状态
+**         :                   3. 对 arp 映射项映射的 IPv4 地址发送一个 arp 查询请求
+**         : 
+** 输	 入: 
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 etharp_tmr(void)
 {
   int i;
 
   LWIP_DEBUGF(ETHARP_DEBUG, ("etharp_timer\n"));
+  
   /* remove expired entries from the ARP table */
   for (i = 0; i < ARP_TABLE_SIZE; ++i) {
     u8_t state = arp_table[i].state;
     if (state != ETHARP_STATE_EMPTY
 #if ETHARP_SUPPORT_STATIC_ENTRIES
+        /* 如果某个指定的 arp 映射项被设置为 ETHARP_STATE_STATIC 状态，则表示这个
+         * arp 映射项不会被自动移除而长驻在 arp               地址映射表中 */
         && (state != ETHARP_STATE_STATIC)
 #endif /* ETHARP_SUPPORT_STATIC_ENTRIES */
        ) {
+      /* arp 定时器每超时一次，会把当前系统内“所有”有效的 arp 映射项的 ctime 字段值加 1 */
       arp_table[i].ctime++;
+	  
       if ((arp_table[i].ctime >= ARP_MAXAGE) ||
           ((arp_table[i].state == ETHARP_STATE_PENDING)  &&
            (arp_table[i].ctime >= ARP_MAXPENDING))) {
@@ -234,6 +302,7 @@ etharp_tmr(void)
         LWIP_DEBUGF(ETHARP_DEBUG, ("etharp_timer: expired %s entry %d.\n",
                                    arp_table[i].state >= ETHARP_STATE_STABLE ? "stable" : "pending", i));
         /* clean up entries that have just been expired */
+	    /* 如果指定的 arp 映射项驻留在 arp 地址表中的时间超过预设定的阈值，则把它从 arp 地址表中移除 */
         etharp_free_entry(i);
       } else if (arp_table[i].state == ETHARP_STATE_STABLE_REREQUESTING_1) {
         /* Don't send more than one request every 2 seconds. */
@@ -271,14 +340,44 @@ etharp_tmr(void)
  * @return The ARP entry index that matched or is created, ERR_MEM if no
  * entry is found or could be recycled.
  */
+/*********************************************************************************************************
+** 函数名称: etharp_find_entry
+** 功能描述: 从当前协议栈的 arp 地址映射表中查找一个和指定 IPv4 地址匹配的 arp 映射项，如果当前 arp
+**		   : 映射表中没有和我们指定信息匹配的 arp 映射项，则根据当前 arp 映射表状态及 flags 参数标志
+**         : 执行如下不同操作：
+**		   : 1. 如果 arp 映射表没满
+**         :    a. 如果在参数 flags 中“设置了” ETHARP_FLAG_FIND_ONLY 标志，则直接返回 ERR_MEM
+**		   :    b. 如果在参数 flags 中“没设置” ETHARP_FLAG_FIND_ONLY 标志，则为我们指定的 IPv4 地址创建
+**         :       一个新的 arp 映射项并返回这个映射项的索引值
+**		   : 2. 如果 arp 映射表满了
+**		   :    a. 如果在参数 flags 中“设置了” ETHARP_FLAG_FIND_ONLY 标志，则直接返回 ERR_MEM
+**		   :    b. 如果在参数 flags 中“没设置” ETHARP_FLAG_FIND_ONLY 标志也“没设置” ETHARP_FLAG_TRY_HARD
+**		   :       标志，则直接返回 ERR_MEM
+**		   :    c. 如果在参数 flags 中“没设置” ETHARP_FLAG_FIND_ONLY 标志但是“设置了” ETHARP_FLAG_TRY_HARD
+**		   :       标志，则根据 oldest stable entry -> oldest pending entry without queued packets -> 
+**         :       oldest pending entry with queued packets 的顺序选择一个已经存在的 arp 映射项回收，然后
+**         :       在回收的这个位置为我们指定的 IPv4 地址创建一个新的 arp 映射项，并返回这个映射项的索引值
+**         :      （因为这个 arp 映射项目前只有 IPv4 地址，所以是不完整的）
+** 输	 入: ipaddr - 要查找的 arp 映射项的 IPv4 地址
+**         : flags - 查找时使用的标志
+**         : netif - 要查找的 arp 映射项所属网络接口指针
+** 输	 出: i > 0 - 找到的 arp 映射项在 arp 映射表中的索引值（可能是刚刚创建的，所以还没有 MAC 地址信息）
+**         : i < 0 - 没找到指定的 arp 映射项
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static s16_t
 etharp_find_entry(const ip4_addr_t *ipaddr, u8_t flags, struct netif *netif)
 {
   s16_t old_pending = ARP_TABLE_SIZE, old_stable = ARP_TABLE_SIZE;
+
+  /* 记录当前协议栈内，在 arp 地址映射表中第一个处于 ETHARP_STATE_EMPTY 状态的 arp 映射项的索引值 */
   s16_t empty = ARP_TABLE_SIZE;
+  
   s16_t i = 0;
   /* oldest entry with packets on queue */
   s16_t old_queue = ARP_TABLE_SIZE;
+  
   /* its age */
   u16_t age_queue = 0, age_pending = 0, age_stable = 0;
 
@@ -301,14 +400,18 @@ etharp_find_entry(const ip4_addr_t *ipaddr, u8_t flags, struct netif *netif)
 
   for (i = 0; i < ARP_TABLE_SIZE; ++i) {
     u8_t state = arp_table[i].state;
+	
     /* no empty entry found yet and now we do find one? */
     if ((empty == ARP_TABLE_SIZE) && (state == ETHARP_STATE_EMPTY)) {
       LWIP_DEBUGF(ETHARP_DEBUG, ("etharp_find_entry: found empty entry %d\n", (int)i));
+	  
       /* remember first empty entry */
+	  /* 记录 arp 映射表中第一个处于 ETHARP_STATE_EMPTY 状态的 arp 映射项索引 */
       empty = i;
     } else if (state != ETHARP_STATE_EMPTY) {
       LWIP_ASSERT("state == ETHARP_STATE_PENDING || state >= ETHARP_STATE_STABLE",
                   state == ETHARP_STATE_PENDING || state >= ETHARP_STATE_STABLE);
+	  
       /* if given, does IP address match IP address in ARP entry? */
       if (ipaddr && ip4_addr_cmp(ipaddr, &arp_table[i].ipaddr)
 #if ETHARP_TABLE_MATCH_NETIF
@@ -317,20 +420,26 @@ etharp_find_entry(const ip4_addr_t *ipaddr, u8_t flags, struct netif *netif)
          ) {
         LWIP_DEBUGF(ETHARP_DEBUG | LWIP_DBG_TRACE, ("etharp_find_entry: found matching entry %d\n", (int)i));
         /* found exact IP address match, simply bail out */
+		/* 如果找到了 IPv4 地址匹配且 netif 接口匹配的 arp 映射项，则返回这个映射项在 arp 映射表中的索引值 */
         return i;
       }
+		 
       /* pending entry? */
       if (state == ETHARP_STATE_PENDING) {
         /* pending with queued packets? */
         if (arp_table[i].q != NULL) {
           if (arp_table[i].ctime >= age_queue) {
+		  	/* 记录当前 arp 地址映射表中，处于 ETHARP_STATE_PENDING 状态且“有”还未发送的数据包中，驻留
+		  	 * 时间最长的 arp 映射项在 arp 映射表中的索引值以及驻留时间 */
             old_queue = i;
             age_queue = arp_table[i].ctime;
           }
         } else
           /* pending without queued packets? */
         {
-          if (arp_table[i].ctime >= age_pending) {
+          if (arp_table[i].ctime >= age_pending) {		  	
+		    /* 记录当前 arp 地址映射表中，处于 ETHARP_STATE_PENDING 状态且“没有”未发送的数据包中，驻留
+		     * 时间最长的 arp 映射项在 arp 映射表中的索引值以及驻留时间 */
             old_pending = i;
             age_pending = arp_table[i].ctime;
           }
@@ -343,7 +452,9 @@ etharp_find_entry(const ip4_addr_t *ipaddr, u8_t flags, struct netif *netif)
 #endif /* ETHARP_SUPPORT_STATIC_ENTRIES */
         {
           /* remember entry with oldest stable entry in oldest, its age in maxtime */
-          if (arp_table[i].ctime >= age_stable) {
+          if (arp_table[i].ctime >= age_stable) {		  	
+		   /* 记录当前 arp 地址映射表中，处于 ETHARP_STATE_STABLE 状态且驻留时间最长的 arp 映射项在 arp
+			* 映射表中的索引值以及驻留时间 */
             old_stable = i;
             age_stable = arp_table[i].ctime;
           }
@@ -354,6 +465,9 @@ etharp_find_entry(const ip4_addr_t *ipaddr, u8_t flags, struct netif *netif)
   /* { we have no match } => try to create a new entry */
 
   /* don't create new entry, only search? */
+  /* 如果我们既没有设置 ETHARP_FLAG_TRY_HARD 标志，也没有设置 ETHARP_FLAG_FIND_ONLY 标志，那么
+   * 在没找到我们指定的 IPv4 地址匹配的 arp 映射项时，如果 arp 地址映射表没满，则会为我们指定的
+   * IPv4 地址创建一个新的 arp 映射项 */
   if (((flags & ETHARP_FLAG_FIND_ONLY) != 0) ||
       /* or no empty entry found and not allowed to recycle? */
       ((empty == ARP_TABLE_SIZE) && ((flags & ETHARP_FLAG_TRY_HARD) == 0))) {
@@ -408,6 +522,7 @@ etharp_find_entry(const ip4_addr_t *ipaddr, u8_t flags, struct netif *netif)
               arp_table[i].state == ETHARP_STATE_EMPTY);
 
   /* IP address given? */
+  /* 新创建了一个 arp 映射项，设置这个映射项的 IPv4 地址值 */
   if (ipaddr != NULL) {
     /* set IP address */
     ip4_addr_copy(arp_table[i].ipaddr, *ipaddr);
@@ -437,6 +552,18 @@ etharp_find_entry(const ip4_addr_t *ipaddr, u8_t flags, struct netif *netif)
  *
  * @see pbuf_free()
  */
+/*********************************************************************************************************
+** 函数名称: etharp_update_arp_entry
+** 功能描述: 更新指定的 IPv4 地址对应的 arp 映射项内容，在更新成功后，把在这个 arp 映射项的数据队列
+**         : 中的数据包通过以太网 (ethernet_output) 发送出去
+** 输	 入: netif - 和 arp 映射项相关的网络接口
+**         : ipaddr - 要更新的 arp 映射项的 IPv4 地址
+**         : ethaddr - 要更新的 arp 映射项的 MAC 地址
+**         : flags - 查找 arp 映射项时使用的标志
+** 输	 出: err_t - 操作状态
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static err_t
 etharp_update_arp_entry(struct netif *netif, const ip4_addr_t *ipaddr, struct eth_addr *ethaddr, u8_t flags)
 {
@@ -446,6 +573,7 @@ etharp_update_arp_entry(struct netif *netif, const ip4_addr_t *ipaddr, struct et
               ip4_addr1_16(ipaddr), ip4_addr2_16(ipaddr), ip4_addr3_16(ipaddr), ip4_addr4_16(ipaddr),
               (u16_t)ethaddr->addr[0], (u16_t)ethaddr->addr[1], (u16_t)ethaddr->addr[2],
               (u16_t)ethaddr->addr[3], (u16_t)ethaddr->addr[4], (u16_t)ethaddr->addr[5]));
+  
   /* non-unicast address? */
   if (ip4_addr_isany(ipaddr) ||
       ip4_addr_isbroadcast(ipaddr, netif) ||
@@ -453,6 +581,7 @@ etharp_update_arp_entry(struct netif *netif, const ip4_addr_t *ipaddr, struct et
     LWIP_DEBUGF(ETHARP_DEBUG | LWIP_DBG_TRACE, ("etharp_update_arp_entry: will not add non-unicast IP address to ARP cache\n"));
     return ERR_ARG;
   }
+	  
   /* find or create ARP entry */
   i = etharp_find_entry(ipaddr, flags, netif);
   /* bail out if no entry could be found */
@@ -460,6 +589,7 @@ etharp_update_arp_entry(struct netif *netif, const ip4_addr_t *ipaddr, struct et
     return (err_t)i;
   }
 
+/* 处理刚刚找到或创建的 arp 映射项状态值 */
 #if ETHARP_SUPPORT_STATIC_ENTRIES
   if (flags & ETHARP_FLAG_STATIC_ENTRY) {
     /* record static type */
@@ -480,11 +610,20 @@ etharp_update_arp_entry(struct netif *netif, const ip4_addr_t *ipaddr, struct et
   mib2_add_arp_entry(netif, &arp_table[i].ipaddr);
 
   LWIP_DEBUGF(ETHARP_DEBUG | LWIP_DBG_TRACE, ("etharp_update_arp_entry: updating stable entry %"S16_F"\n", i));
+  
   /* update address */
+  /* 设置刚刚找到或创建的 arp 映射项中的物理地址信息 */
   SMEMCPY(&arp_table[i].ethaddr, ethaddr, ETH_HWADDR_LEN);
+
   /* reset time stamp */
+  /* 在每次更新 arp 映射项的物理地址信息时，都清空这个 arp 映射项的 ctime 值，避免这个
+   * arp 映射项在 arp 定时器超时处理函数中被回收移除 */
   arp_table[i].ctime = 0;
+  
   /* this is where we will send out queued packets! */
+  /* 因为上面已经设置了当前指定的 arp 映射项的 IPv4 地址以及与其对应的物理地址
+   * 所以我们现在有了完成的 arp 映射项，所以可以把之前放在这个 arp 映射项的数据
+   * 队列上的数据包向外发送了 */
 #if ARP_QUEUEING
   while (arp_table[i].q != NULL) {
     struct pbuf *p;
@@ -501,7 +640,9 @@ etharp_update_arp_entry(struct netif *netif, const ip4_addr_t *ipaddr, struct et
     struct pbuf *p = arp_table[i].q;
     arp_table[i].q = NULL;
 #endif /* ARP_QUEUEING */
+
     /* send the queued IP packet */
+	/* 把从当前 arp 映射项上取出的一个完整数据包（pbuf）通过以太网向外发送 */
     ethernet_output(netif, p, (struct eth_addr *)(netif->hwaddr), ethaddr, ETHTYPE_IP);
     /* free the queued IP packet */
     pbuf_free(p);
@@ -518,6 +659,17 @@ etharp_update_arp_entry(struct netif *netif, const ip4_addr_t *ipaddr, struct et
  * @param ethaddr ethernet address for the new static entry
  * @return See return values of etharp_add_static_entry
  */
+/*********************************************************************************************************
+** 函数名称: etharp_add_static_entry
+** 功能描述: 向 arp 地址映射表中添加一个指定映射关系的 ETHARP_STATE_STATIC 类型的 arp 映射项，如果在
+**         : arp 地址映射表中已经有了和指定的 IPv4 地址对应的 arp 映射项，则更新这个映射项的内容，如果
+**         : 在指定的映射项的数据队列中有未发送的数据包，则通过以太网发送这些数据
+** 输	 入: ipaddr - 要添加的 arp 映射项的 IPv4 地址
+**		   : ethaddr - 要添加的 arp 映射项的 MAC 地址
+** 输	 出: err_t - 操作状态
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 err_t
 etharp_add_static_entry(const ip4_addr_t *ipaddr, struct eth_addr *ethaddr)
 {
@@ -528,6 +680,7 @@ etharp_add_static_entry(const ip4_addr_t *ipaddr, struct eth_addr *ethaddr)
               (u16_t)ethaddr->addr[0], (u16_t)ethaddr->addr[1], (u16_t)ethaddr->addr[2],
               (u16_t)ethaddr->addr[3], (u16_t)ethaddr->addr[4], (u16_t)ethaddr->addr[5]));
 
+  /* 判断指定的 IPv4 地址在当前的系统环境中是否有可使用的路由网络接口 */
   netif = ip4_route(ipaddr);
   if (netif == NULL) {
     return ERR_RTE;
@@ -544,6 +697,14 @@ etharp_add_static_entry(const ip4_addr_t *ipaddr, struct eth_addr *ethaddr)
  *         ERR_MEM: entry wasn't found
  *         ERR_ARG: entry wasn't a static entry but a dynamic one
  */
+/*********************************************************************************************************
+** 函数名称: etharp_remove_static_entry
+** 功能描述: 从当前 arp 映射表中移除指定的 IPv4 地址对应的 arp 映射项以及这个映射项数据队列中未发送的数据
+** 输	 入: ipaddr - 要移除的 arp 映射项的 IPv4 地址
+** 输	 出: err_t - 操作状态
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 err_t
 etharp_remove_static_entry(const ip4_addr_t *ipaddr)
 {
@@ -606,6 +767,18 @@ etharp_cleanup_netif(struct netif *netif)
  * @param ip_ret points to return pointer
  * @return table index if found, -1 otherwise
  */
+/*********************************************************************************************************
+** 函数名称: etharp_find_addr
+** 功能描述: 从当前系统的 arp 映射表中查找和指定的 IPv4 地址对应的 arp 映射项，并返回他们的地址信息
+** 输	 入: netif - 和 IPv4 地址相关的网络接口指针
+**         : ipaddr - 要查找的 IPv4 地址的映射项
+**         : eth_ret - 返回找到的 arp 映射项中的物理地址信息
+**         : ip_ret - 返回找到的 arp 映射项中的 IPv4 地址信息
+** 输	 出: i >= 0 - 找到的 arp 映射项中索引值
+**         : -1 - 没找到和指定的 IPv4 地址对应的 arp 映射项
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 ssize_t
 etharp_find_addr(struct netif *netif, const ip4_addr_t *ipaddr,
                  struct eth_addr **eth_ret, const ip4_addr_t **ip_ret)
@@ -635,6 +808,18 @@ etharp_find_addr(struct netif *netif, const ip4_addr_t *ipaddr,
  * @param eth_ret return value: ETH address
  * @return 1 on valid index, 0 otherwise
  */
+/*********************************************************************************************************
+** 函数名称: etharp_get_entry
+** 功能描述: 从当前系统的 arp 映射表中读取指定索引的 arp 映射项内容，并返回相关信息
+** 输     入: i - 要读取的 arp 映射项的索引值
+** 		   : ipaddr - arp 映射项的 IPv4 地址
+**         : netif - arp 映射项的网络接口指针
+** 		   : eth_ret - arp 映射项的物理地址
+** 输     出: 1 - 读取成功
+** 		   : 0 - 读取失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 int
 etharp_get_entry(size_t i, ip4_addr_t **ipaddr, struct netif **netif, struct eth_addr **eth_ret)
 {
@@ -664,6 +849,17 @@ etharp_get_entry(size_t i, ip4_addr_t **ipaddr, struct netif **netif, struct eth
  *
  * @see pbuf_free()
  */
+/*********************************************************************************************************
+** 函数名称: etharp_input
+** 功能描述: 处理以太网接收到的 arp 数据包，首先校验 arp 数据“包头”信息，并根据数据包信息处理本地的 
+**         : arp 映射表内容，然后再根据 arp 操作码（ARP_REQUEST or ARP_REPLY）执行相应逻辑
+** 注     释: arp 数据包格式：https://www.cnblogs.com/laojie4321/archive/2012/04/12/2444187.html
+** 输	 入: p - 接收到的 arp 数据包
+**		   : netif - 接收到 arp 数据包的网络接口
+** 输     出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 etharp_input(struct pbuf *p, struct netif *netif)
 {
@@ -679,6 +875,7 @@ etharp_input(struct pbuf *p, struct netif *netif)
   hdr = (struct etharp_hdr *)p->payload;
 
   /* RFC 826 "Packet Reception": */
+  /* 校验 arp 数据包中的“协议头”部分数据内容 */
   if ((hdr->hwtype != PP_HTONS(LWIP_IANA_HWTYPE_ETHERNET)) ||
       (hdr->hwlen != ETH_HWADDR_LEN) ||
       (hdr->protolen != sizeof(ip4_addr_t)) ||
@@ -706,6 +903,7 @@ etharp_input(struct pbuf *p, struct netif *netif)
   IPADDR_WORDALIGNED_COPY_TO_IP4_ADDR_T(&dipaddr, &hdr->dipaddr);
 
   /* this interface is not configured? */
+  /* 判断接收到的 arp 数据包是否是发送给我们的 */
   if (ip4_addr_isany_val(*netif_ip4_addr(netif))) {
     for_us = 0;
   } else {
@@ -718,12 +916,14 @@ etharp_input(struct pbuf *p, struct netif *netif)
          can result in directly sending the queued packets for this host.
      ARP message not directed to us?
       ->  update the source IP address in the cache, if present */
+  /* 根据接收到的 arp 数据包处理本地的 arp 映射表内容 */
   etharp_update_arp_entry(netif, &sipaddr, &(hdr->shwaddr),
                           for_us ? ETHARP_FLAG_TRY_HARD : ETHARP_FLAG_FIND_ONLY);
 
   /* now act on the message itself */
   switch (hdr->opcode) {
     /* ARP request? */
+    /* 处理其他设备发送的 arp 请求操作 */
     case PP_HTONS(ARP_REQUEST):
       /* ARP request. If it asked for our address, we send out a
        * reply. In any case, we time-stamp any existing ARP entry,
@@ -733,6 +933,7 @@ etharp_input(struct pbuf *p, struct netif *netif)
       /* ARP request for our address? */
       if (for_us) {
         /* send ARP response */
+	    /* 如果是别的设备向当前设备发送了一个 arp 请求信息，则给这个设备恢复一个 arp 响应数据包 */
         etharp_raw(netif,
                    (struct eth_addr *)netif->hwaddr, &hdr->shwaddr,
                    (struct eth_addr *)netif->hwaddr, netif_ip4_addr(netif),
@@ -748,6 +949,8 @@ etharp_input(struct pbuf *p, struct netif *netif)
         LWIP_DEBUGF(ETHARP_DEBUG | LWIP_DBG_TRACE, ("etharp_input: ARP request was not for us.\n"));
       }
       break;
+
+	/* 处理其他设备发送的 arp 回复操作 */
     case PP_HTONS(ARP_REPLY):
       /* ARP reply. We already updated the ARP cache earlier. */
       LWIP_DEBUGF(ETHARP_DEBUG | LWIP_DBG_TRACE, ("etharp_input: incoming ARP reply\n"));
@@ -759,6 +962,7 @@ etharp_input(struct pbuf *p, struct netif *netif)
       dhcp_arp_reply(netif, &sipaddr);
 #endif /* (LWIP_DHCP && DHCP_DOES_ARP_CHECK) */
       break;
+
     default:
       LWIP_DEBUGF(ETHARP_DEBUG | LWIP_DBG_TRACE, ("etharp_input: ARP unknown opcode type %"S16_F"\n", lwip_htons(hdr->opcode)));
       ETHARP_STATS_INC(etharp.err);
@@ -771,14 +975,30 @@ etharp_input(struct pbuf *p, struct netif *netif)
 /** Just a small helper function that sends a pbuf to an ethernet address
  * in the arp_table specified by the index 'arp_idx'.
  */
+/*********************************************************************************************************
+** 函数名称: etharp_output_to_arp_index
+** 功能描述: 把指定的网络数据包通过指定的以太网接口发送到指定的 arp 映射项代表的目的地址处
+** 注     释: 在每次发送数据之前会对指定的、处于                   ETHARP_STATE_STABLE 状态的 arp 映射项驻留时间做判断
+**         : 如果驻留时间超过了设定的阈值，则发送一个相应的 arp 请求
+** 输	 入: netif - 发送指定网络数据包的网络接口指针
+**		   : q - 要发送的网络数据包
+**         : arp_idx - 发送的网络数据包的目的地址在 arp 映射表中的索引值
+** 输	 出: err_t - 操作状态
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static err_t
 etharp_output_to_arp_index(struct netif *netif, struct pbuf *q, netif_addr_idx_t arp_idx)
 {
   LWIP_ASSERT("arp_table[arp_idx].state >= ETHARP_STATE_STABLE",
               arp_table[arp_idx].state >= ETHARP_STATE_STABLE);
+  
   /* if arp table entry is about to expire: re-request it,
      but only if its state is ETHARP_STATE_STABLE to prevent flooding the
      network with ARP requests if this address is used frequently. */
+  /* 如果指定的 arp 映射项即将超时，则对这个 arp 的 IPv4 地址重新发送一个 arp 请求信息
+   * 来更新 arp 映射项内容。另外，为了防止因发送大量 arp 请求占用网络资源，所以只对处于
+   * ETHARP_STATE_STABLE 状态的 arp 映射项做相关处理 */
   if (arp_table[arp_idx].state == ETHARP_STATE_STABLE) {
     if (arp_table[arp_idx].ctime >= ARP_AGE_REREQUEST_USED_BROADCAST) {
       /* issue a standard request using broadcast */
@@ -793,6 +1013,7 @@ etharp_output_to_arp_index(struct netif *netif, struct pbuf *q, netif_addr_idx_t
     }
   }
 
+  /* 把指定的网络数据包通过指定的以太网接口发送到指定的 arp 映射项代表的目的地址处 */
   return ethernet_output(netif, q, (struct eth_addr *)(netif->hwaddr), &arp_table[arp_idx].ethaddr, ETHTYPE_IP);
 }
 
@@ -814,6 +1035,25 @@ etharp_output_to_arp_index(struct netif *netif, struct pbuf *q, netif_addr_idx_t
  * - ERR_RTE No route to destination (no gateway to external networks),
  * or the return type of either etharp_query() or ethernet_output().
  */
+/*********************************************************************************************************
+** 函数名称: etharp_output
+** 功能描述: 把指定的网络数据包通过指定的以太网接口发送给指定的 IPv4 设备，如果发送的目的 IPv4 地址是
+**         : 广播地址或者是多播地址，则通过以太网发送函数直接发送网络数据包，如果发送的目的 IPv4 地址
+**         : 是单播地址，则需要执行的步骤如下：
+**         : 1. 如果目的 IPv4 地址和指定的网络接口不在同一个网段内并且目的 IPv4 地址不是 linklocal 地址
+**         :    则通过路由信息为目的地址找出一个合适的网关，然后把这个数据包发送到网关设备处
+**         : 2. 如果缓存的 arp 地址信息和当前目的地址“匹配”，则通过缓冲的 arp 映射项直接发送网络数据包
+**         : 3. 如果缓存的 arp 地址信息和当前目的地址“不匹配”，则通过查询 arp 映射表找到和当前目的地址
+**         :    匹配的 arp 映射项然后把指定的网络数据包发送到这个 arp 映射项代表的目的 MAC 地址处
+**         : 4. 如果当前系统内没有和我们指定的目的地址相关的 arp 映射项内容，则创建一个新的 arp 映射项
+**         :    并发送一个 arp 请求，然后把需要发送的网络数据包添加到新创建的 arp 映射项的数据队列上
+** 输	 入: netif - 发送指定网络数据包的网络接口指针
+**		   : q - 要发送的网络数据包
+**		   : ipaddr - 目的设备 IPv4 地址
+** 输	 出: err_t - 操作状态
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 err_t
 etharp_output(struct netif *netif, struct pbuf *q, const ip4_addr_t *ipaddr)
 {
@@ -849,8 +1089,11 @@ etharp_output(struct netif *netif, struct pbuf *q, const ip4_addr_t *ipaddr)
     netif_addr_idx_t i;
     /* outside local network? if so, this can neither be a global broadcast nor
        a subnet broadcast. */
+    /* 如果目的 IPv4 地址和指定的网络接口不在同一个网段内并且目的 IPv4 地址不是 linklocal 地址
+     * 则通过路由信息为目的地址找出一个合适的网关，然后把这个数据包发送到网关设备处 */
     if (!ip4_addr_netcmp(ipaddr, netif_ip4_addr(netif), netif_ip4_netmask(netif)) &&
         !ip4_addr_islinklocal(ipaddr)) {
+        
 #if LWIP_AUTOIP
       struct ip_hdr *iphdr = LWIP_ALIGNMENT_CAST(struct ip_hdr *, q->payload);
       /* According to RFC 3297, chapter 2.6.2 (Forwarding Rules), a packet with
@@ -859,10 +1102,12 @@ etharp_output(struct netif *netif, struct pbuf *q, const ip4_addr_t *ipaddr)
          router for forwarding". */
       if (!ip4_addr_islinklocal(&iphdr->src))
 #endif /* LWIP_AUTOIP */
+
       {
 #ifdef LWIP_HOOK_ETHARP_GET_GW
         /* For advanced routing, a single default gateway might not be enough, so get
            the IP address of the gateway to handle the current destination address. */
+        /* 通过实现路由钩子函数，实现高级路由功能，如果这个钩子函数没实现，则使用当前网络接口默认网关 */
         dst_addr = LWIP_HOOK_ETHARP_GET_GW(netif, ipaddr);
         if (dst_addr == NULL)
 #endif /* LWIP_HOOK_ETHARP_GET_GW */
@@ -879,6 +1124,9 @@ etharp_output(struct netif *netif, struct pbuf *q, const ip4_addr_t *ipaddr)
         }
       }
     }
+
+/* 如果缓存的 arp 地址信息和当前目的地址匹配，则通过缓冲的 arp 映射项直接发送网络数据包，这样在 arp 映射表比较大
+ * 且我们持续向同一个设备发送数据的时候，会提高 arp 命中效率 */
 #if LWIP_NETIF_HWADDRHINT
     if (netif->hints != NULL) {
       /* per-pcb cached entry was given */
@@ -901,6 +1149,8 @@ etharp_output(struct netif *netif, struct pbuf *q, const ip4_addr_t *ipaddr)
 
     /* find stable entry: do this here since this is a critical path for
        throughput and etharp_find_entry() is kind of slow */
+    /* 如果 arp 缓存没命中，则通过查询 arp 映射表找到和当前目的地址匹配的 arp 映射项
+     * 然后把指定的网络数据包发送到这个 arp 映射项代表的目的 MAC 地址处 */
     for (i = 0; i < ARP_TABLE_SIZE; i++) {
       if ((arp_table[i].state >= ETHARP_STATE_STABLE) &&
 #if ETHARP_TABLE_MATCH_NETIF
@@ -914,12 +1164,16 @@ etharp_output(struct netif *netif, struct pbuf *q, const ip4_addr_t *ipaddr)
     }
     /* no stable entry found, use the (slower) query function:
        queue on destination Ethernet address belonging to ipaddr */
+    /* 如果当前系统内没有和我们指定的目的地址相关的 arp 映射项内容，则创建一个新的 
+     * arp 映射项并发送一个 arp 请求，然后把需要发送的网络数据包添加到新创建的 arp
+     * 映射项的数据队列上 */
     return etharp_query(netif, dst_addr, q);
   }
 
   /* continuation for multicast/broadcast destinations */
   /* obtain source Ethernet address of the given interface */
   /* send packet directly on the link */
+  /* 如果发送的目的 IPv4 地址是广播地址或者是多播地址，则通过以太网发送函数直接发送网络数据包 */
   return ethernet_output(netif, q, (struct eth_addr *)(netif->hwaddr), dest, ETHTYPE_IP);
 }
 
@@ -956,6 +1210,19 @@ etharp_output(struct netif *netif, struct pbuf *q, const ip4_addr_t *ipaddr)
  * - ERR_ARG Non-unicast address given, those will not appear in ARP cache.
  *
  */
+/*********************************************************************************************************
+** 函数名称: etharp_query
+** 功能描述: 如果指定的 IPv4 地址在当前系统的 arp 映射表中有与其对饮的 arp 映射项，则把指定的网络数据包
+**         : 发送到这个 arp 映射项表示的目的 MAC 地址处，如果指定的 IPv4 地址在当前系统的 arp 映射表中
+**         : 没有对应的 arp 映射项，则创建一个与其对应的新的 arp 映射项，然后发送一个 arp 请求数据，并把
+**         : 需要发送的网络数据包添加到新创建的 arp 映射项的数据队列中
+** 输	 入: netif - 发送 arp 请求的网络接口指针
+**		   : ipaddr - 需要查询 arp 请求 IPv4 地址
+**		   : q - 需要放到 arp 映射项数据队列中的网络数据包
+** 输	 出: err_t - 操作状态
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 err_t
 etharp_query(struct netif *netif, const ip4_addr_t *ipaddr, struct pbuf *q)
 {
@@ -974,6 +1241,8 @@ etharp_query(struct netif *netif, const ip4_addr_t *ipaddr, struct pbuf *q)
   }
 
   /* find entry in ARP cache, ask to create entry if queueing packet */
+  /* 从当前系统的 arp 地址映射表中查询指定的目的 IPv4 地址对应的 arp 映射项，如果没有与其对应的
+   * arp 映射项，则尝试创建一个与其对应的新的                   arp 映射项 */
   i_err = etharp_find_entry(ipaddr, ETHARP_FLAG_TRY_HARD, netif);
 
   /* could not find or create entry? */
@@ -1004,6 +1273,7 @@ etharp_query(struct netif *netif, const ip4_addr_t *ipaddr, struct pbuf *q)
   /* do we have a new entry? or an implicit query request? */
   if (is_new_entry || (q == NULL)) {
     /* try to resolve it; send out ARP request */
+    /* 对指定的 IPv4 地址发送一个 arp 请求信息 */
     result = etharp_request(netif, ipaddr);
     if (result != ERR_OK) {
       /* ARP request couldn't be sent */
@@ -1021,6 +1291,7 @@ etharp_query(struct netif *netif, const ip4_addr_t *ipaddr, struct pbuf *q)
   /* stable entry? */
   if (arp_table[i].state >= ETHARP_STATE_STABLE) {
     /* we have a valid IP->Ethernet address mapping */
+    /* 如果命中了 arp 映射项，则更新 arp 缓存内容为命中的那个 */
     ETHARP_SET_ADDRHINT(netif, i);
     /* send the packet */
     result = ethernet_output(netif, q, srcaddr, &(arp_table[i].ethaddr), ETHTYPE_IP);
@@ -1048,12 +1319,16 @@ etharp_query(struct netif *netif, const ip4_addr_t *ipaddr, struct pbuf *q)
       p = q;
       pbuf_ref(p);
     }
+	
     /* packet could be taken over? */
-    if (p != NULL) {
+    /* 把需要发送的网络数据包添加到当前 arp 映射项的数据队列中 */
+	if (p != NULL) {
       /* queue packet ... */
 #if ARP_QUEUEING
       struct etharp_q_entry *new_entry;
+
       /* allocate a new arp queue entry */
+      /* 从 lwip 内存池中申请一个 arp 数据队列项结构 */
       new_entry = (struct etharp_q_entry *)memp_malloc(MEMP_ARP_QUEUE);
       if (new_entry != NULL) {
         unsigned int qlen = 0;
@@ -1068,12 +1343,17 @@ etharp_query(struct netif *netif, const ip4_addr_t *ipaddr, struct pbuf *q)
             r = r->next;
             qlen++;
           }
+		  /* 把新的网络数据包插入到链表尾部 */
           r->next = new_entry;
         } else {
           /* queue did not exist, first item in queue */
           arp_table[i].q = new_entry;
         }
+
 #if ARP_QUEUE_LEN
+        /* 如果当前 arp 映射项的数据队列上的网络数据包“包数”超过了预先设定的阈值
+         * 则把“最旧”的数据包从中移除并释放，因为我们会把新的数据包插入到链表尾部
+         * 所以最旧的数据包就是链表头部位置的那个数据包 */
         if (qlen >= ARP_QUEUE_LEN) {
           struct etharp_q_entry *old;
           old = arp_table[i].q;
@@ -1082,6 +1362,7 @@ etharp_query(struct netif *netif, const ip4_addr_t *ipaddr, struct pbuf *q)
           memp_free(MEMP_ARP_QUEUE, old);
         }
 #endif
+
         LWIP_DEBUGF(ETHARP_DEBUG | LWIP_DBG_TRACE, ("etharp_query: queued packet %p on ARP entry %"U16_F"\n", (void *)q, i));
         result = ERR_OK;
       } else {
@@ -1090,6 +1371,7 @@ etharp_query(struct netif *netif, const ip4_addr_t *ipaddr, struct pbuf *q)
         LWIP_DEBUGF(ETHARP_DEBUG | LWIP_DBG_TRACE, ("etharp_query: could not queue a copy of PBUF_REF packet %p (out of memory)\n", (void *)q));
         result = ERR_MEM;
       }
+	  
 #else /* ARP_QUEUEING */
       /* always queue one packet per ARP request only, freeing a previously queued packet */
       if (arp_table[i].q != NULL) {
@@ -1124,6 +1406,22 @@ etharp_query(struct netif *netif, const ip4_addr_t *ipaddr, struct pbuf *q)
  *         ERR_MEM if the ARP packet couldn't be allocated
  *         any other err_t on failure
  */
+/*********************************************************************************************************
+** 函数名称: etharp_raw
+** 功能描述: 根据指定的信息，组成一个 arp 协议数据包并通过以太网设备发送出去
+** 注     释: arp 协议数据格式介绍：https://www.cnblogs.com/laojie4321/archive/2012/04/12/2444187.html
+** 输	 入: netif - 发送 arp 数据包的网络接口指针
+**		   : ethsrc_addr - 以太网协议数据包“包头”中的源设备 MAC 地址
+**		   : ethdst_addr - 以太网协议数据包“包头”中的目的设备 MAC 地址
+**		   : hwsrc_addr - arp 协议数据包“包头”中的源设备 MAC 地址
+**		   : ipsrc_addr - arp 协议数据包“包头”中的源设备 IPv4 地址
+**		   : hwdst_addr - arp 协议数据包“包头”中的目的设备 MAC 地址
+**		   : ipdst_addr - arp 协议数据包“包头”中的目的设备 IPv4 地址
+**		   : opcode - arp 协议数据包“包头”中的操作码内容
+** 输	 出: err_t - 操作状态
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static err_t
 etharp_raw(struct netif *netif, const struct eth_addr *ethsrc_addr,
            const struct eth_addr *ethdst_addr,
@@ -1138,6 +1436,7 @@ etharp_raw(struct netif *netif, const struct eth_addr *ethsrc_addr,
   LWIP_ASSERT("netif != NULL", netif != NULL);
 
   /* allocate a pbuf for the outgoing ARP request packet */
+  /* 为需要发送的 arp 协议数据包申请一个 pbuf 结构 */
   p = pbuf_alloc(PBUF_LINK, SIZEOF_ETHARP_HDR, PBUF_RAM);
   /* could allocate a pbuf for an ARP request? */
   if (p == NULL) {
@@ -1149,6 +1448,7 @@ etharp_raw(struct netif *netif, const struct eth_addr *ethsrc_addr,
   LWIP_ASSERT("check that first pbuf can hold struct etharp_hdr",
               (p->len >= SIZEOF_ETHARP_HDR));
 
+  /* 初始化 arp 协议数据包内容 */
   hdr = (struct etharp_hdr *)p->payload;
   LWIP_DEBUGF(ETHARP_DEBUG | LWIP_DBG_TRACE, ("etharp_raw: sending raw ARP packet.\n"));
   hdr->opcode = lwip_htons(opcode);
@@ -1171,6 +1471,7 @@ etharp_raw(struct netif *netif, const struct eth_addr *ethsrc_addr,
   hdr->protolen = sizeof(ip4_addr_t);
 
   /* send ARP query */
+  /* 通过以太网设备发送一个 arp 协议数据包 */
 #if LWIP_AUTOIP
   /* If we are using Link-Local, all ARP packets that contain a Link-Local
    * 'sender IP address' MUST be sent using link-layer broadcast instead of
@@ -1185,6 +1486,7 @@ etharp_raw(struct netif *netif, const struct eth_addr *ethsrc_addr,
 
   ETHARP_STATS_INC(etharp.xmit);
   /* free ARP query packet */
+  /* 发送完 arp 协议数据包后，释放这个数据包的 pbuf 结构 */
   pbuf_free(p);
   p = NULL;
   /* could not allocate pbuf for ARP request */
@@ -1204,6 +1506,17 @@ etharp_raw(struct netif *netif, const struct eth_addr *ethsrc_addr,
  *         ERR_MEM if the ARP packet couldn't be allocated
  *         any other err_t on failure
  */
+/*********************************************************************************************************
+** 函数名称: etharp_request_dst
+** 功能描述: 向指定的物理设备地址上为指定的 IPv4 地址发送一个 arp 请求
+** 注     释: 常常通过单播方式为当前 arp 映射表中将要“过期”的 arp 映射项请求新的 arp 映射信息
+** 输	 入: netif - 发送 arp 数据包的网络接口指针
+**		   : ipaddr - arp 协议数据包“包头”中的目的设备 IPv4 地址
+**		   : hw_dst_addr - 以太网协议数据包“包头”中的目的设备 MAC 地址
+** 输	 出: err_t - 操作状态
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static err_t
 etharp_request_dst(struct netif *netif, const ip4_addr_t *ipaddr, const struct eth_addr *hw_dst_addr)
 {
@@ -1221,6 +1534,15 @@ etharp_request_dst(struct netif *netif, const ip4_addr_t *ipaddr, const struct e
  *         ERR_MEM if the ARP packet couldn't be allocated
  *         any other err_t on failure
  */
+/*********************************************************************************************************
+** 函数名称: etharp_request_dst
+** 功能描述: 通过广播的方式为指定的 IPv4 地址发送一个 arp 请求
+** 输	 入: netif - 发送 arp 数据包的网络接口指针
+**		   : ipaddr - arp 协议数据包“包头”中的目的设备 IPv4 地址
+** 输	 出: err_t - 操作状态
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 err_t
 etharp_request(struct netif *netif, const ip4_addr_t *ipaddr)
 {

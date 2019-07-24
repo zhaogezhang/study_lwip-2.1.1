@@ -641,6 +641,8 @@
  *  for ARP_TMR_INTERVAL = 1000, this is
  *  (60 * 5) seconds = 5 minutes.
  */
+/* 定义了 arp 缓存项在更新后的存活周期，如果超过这个周期后没有重新刷新，则视为
+ * 此项 arp 缓存为无效数据 */
 #if !defined ARP_MAXAGE || defined __DOXYGEN__
 #define ARP_MAXAGE                      300
 #endif

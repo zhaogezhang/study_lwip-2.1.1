@@ -61,12 +61,17 @@ extern "C" {
 #endif
 
 /** 1 seconds period */
+/* 表示调用 arp 模块的定时器超时处理函数 (etharp_tmr) 的周期，单位是毫秒 */
 #define ARP_TMR_INTERVAL 1000
 
 #if ARP_QUEUEING
 /** struct for queueing outgoing packets for unknown address
   * defined here to be accessed by memp.h
   */
+/* 当我们向外发送数据的时候，如果还没有这个数据包目的 IP 地址的 arp 缓存项，那么会建立一个新的
+ * arp 地址表缓存项，然后发起一个 arp 查询请求在返回 arp 查询结果之前，我们向这个 IP 地址发送的
+ * 所有数据包都被放在这个新建的 arp 缓存项的数据缓存队列中，这个结构体定义的就是 arp 缓存项的数
+ * 据缓存队列结构 */
 struct etharp_q_entry {
   struct etharp_q_entry *next;
   struct pbuf *p;

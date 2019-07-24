@@ -151,21 +151,30 @@ struct netif;
  * @arg mask network identifier mask
  * @return !0 if the network identifiers of both address match
  */
+/* 判断两个指定的 IPv4 地址是否在指定的子网中 */
 #define ip4_addr_netcmp(addr1, addr2, mask) (((addr1)->addr & \
                                               (mask)->addr) == \
                                              ((addr2)->addr & \
                                               (mask)->addr))
+/* 比较两个 IPv4 地址是否相同 */
 #define ip4_addr_cmp(addr1, addr2) ((addr1)->addr == (addr2)->addr)
 
 #define ip4_addr_isany_val(addr1)   ((addr1).addr == IPADDR_ANY)
 #define ip4_addr_isany(addr1) ((addr1) == NULL || ip4_addr_isany_val(*(addr1)))
 
+/* 判断指定的 IPv4 地址在指定的网络接口上是否是广播地址 */
 #define ip4_addr_isbroadcast(addr1, netif) ip4_addr_isbroadcast_u32((addr1)->addr, netif)
 u8_t ip4_addr_isbroadcast_u32(u32_t addr, const struct netif *netif);
 
 #define ip_addr_netmask_valid(netmask) ip4_addr_netmask_valid((netmask)->addr)
 u8_t ip4_addr_netmask_valid(u32_t netmask);
 
+/* 在IPv4中它是一个D类IP地址，范围从224.0.0.0到239.255.255.255，并被划分为局部链接多播地址、预留多播地址
+   和管理权限多播地址三类。其中，局部链接多播地址范围在224.0.0.0 ~ 224.0.0.255，这是为路由协议和其它用途
+   保留的地址，路由器并不转发属于此范围的IP包；预留多播地址为224.0.1.0 ~ 238.255.255.255，可用于全球范围
+  （如 Internet）或网络协议；管理权限多播地址为239.0.0.0 ~ 239.255.255.255，可供组织内部使用，类似于私有
+   IP 地址，不能用于 Internet，可限制多播范围 */
+/* 因为 0xe0 = 224，所以 ip4_addr_ismulticast 只判断指定的地址是否是“局部链接”多播地址 */
 #define ip4_addr_ismulticast(addr1) (((addr1)->addr & PP_HTONL(0xf0000000UL)) == PP_HTONL(0xe0000000UL))
 
 #define ip4_addr_islinklocal(addr1) (((addr1)->addr & PP_HTONL(0xffff0000UL)) == PP_HTONL(0xa9fe0000UL))

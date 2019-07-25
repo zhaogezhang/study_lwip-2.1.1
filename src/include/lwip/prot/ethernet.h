@@ -55,12 +55,15 @@ extern "C" {
 #ifdef PACK_STRUCT_USE_INCLUDES
 #  include "arch/bpstruct.h"
 #endif
+
 PACK_STRUCT_BEGIN
 /** An Ethernet MAC address */
+/* 定义以太网物理 MAC 地址表示结构 */
 struct eth_addr {
   PACK_STRUCT_FLD_8(u8_t addr[ETH_HWADDR_LEN]);
 } PACK_STRUCT_STRUCT;
 PACK_STRUCT_END
+
 #ifdef PACK_STRUCT_USE_INCLUDES
 #  include "arch/epstruct.h"
 #endif
@@ -71,9 +74,12 @@ PACK_STRUCT_END
 #ifdef PACK_STRUCT_USE_INCLUDES
 #  include "arch/bpstruct.h"
 #endif
+
 PACK_STRUCT_BEGIN
 /** Ethernet header */
 struct eth_hdr {
+/* 为了使以太网数据帧的负载数据起始地址可以和处理器地址宽度对齐，我们可以在以太网头部添加 pad
+ * 使负载数据起始地址位置向后移动到对齐边界上，这样可以提高数据访问效率 */
 #if ETH_PAD_SIZE
   PACK_STRUCT_FLD_8(u8_t padding[ETH_PAD_SIZE]);
 #endif
@@ -82,6 +88,7 @@ struct eth_hdr {
   PACK_STRUCT_FIELD(u16_t type);
 } PACK_STRUCT_STRUCT;
 PACK_STRUCT_END
+
 #ifdef PACK_STRUCT_USE_INCLUDES
 #  include "arch/epstruct.h"
 #endif
@@ -91,10 +98,11 @@ PACK_STRUCT_END
 #ifdef PACK_STRUCT_USE_INCLUDES
 #  include "arch/bpstruct.h"
 #endif
+
 PACK_STRUCT_BEGIN
 /** VLAN header inserted between ethernet header and payload
  * if 'type' in ethernet header is ETHTYPE_VLAN.
- * See IEEE802.Q */
+ * See IEEE802.Q （见 ethernet.c 文件开始位置的描述内容）*/
 struct eth_vlan_hdr {
   PACK_STRUCT_FIELD(u16_t prio_vid);
   PACK_STRUCT_FIELD(u16_t tpid);
@@ -105,6 +113,8 @@ PACK_STRUCT_END
 #endif
 
 #define SIZEOF_VLAN_HDR 4
+
+/* 获取 vlan 协议头中的 prio_vid（VID）字段值 */
 #define VLAN_ID(vlan_hdr) (lwip_htons((vlan_hdr)->prio_vid) & 0xFFF)
 
 /** The 24-bit IANA IPv4-multicast OUI is 01-00-5e: */

@@ -50,6 +50,7 @@ extern "C" {
 #define IP_PROTO_TCP     6
 
 /** This operates on a void* by loading the first byte */
+/* 获取 IP 协议头中的协议版本信息 */
 #define IP_HDR_GET_VERSION(ptr)   ((*(u8_t*)(ptr)) >> 4)
 
 #ifdef __cplusplus

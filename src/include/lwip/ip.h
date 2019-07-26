@@ -55,10 +55,14 @@ extern "C" {
 /* This is passed as the destination address to ip_output_if (not
    to ip_output), meaning that an IP header already is constructed
    in the pbuf. This is used when TCP retransmits. */
+/* 如果在调用 ip_output_if 接口时传入的目的 IP（兼容 IPv4 和 IPv6）地址为 LWIP_IP_HDRINCL
+ * 表示当前要发送的网络数据包中已经填充了 IP 协议头数据，并且 pbuf->payload 指针指向了 IP
+ * 协议头位置处，这个参数常常在 TCP 重传时使用 */
 #define LWIP_IP_HDRINCL  NULL
 
 /** pbufs passed to IP must have a ref-count of 1 as their payload pointer
     gets altered as the packet is passed down the stack */
+/* 在上层模块向 IP 层传输待发送的网络数据包时，网络数据包的引用计数必须为 1 */
 #ifndef LWIP_IP_CHECK_PBUF_REF_COUNT_FOR_TX
 #define LWIP_IP_CHECK_PBUF_REF_COUNT_FOR_TX(p) LWIP_ASSERT("p->ref == 1", (p)->ref == 1)
 #endif
@@ -104,25 +108,43 @@ struct ip_pcb {
 #define SOF_INHERITED   (SOF_REUSEADDR|SOF_KEEPALIVE)
 
 /** Global variables of this module, kept in a struct for efficient access using base+index. */
+/* 通过这个全局变量来记录当前接收到的 IP 数据包的关键数据，用来提高访问效率
+ * 因为这个结构体内的数据会随着接收数据包变化而变化，所以这个结构体内的数据有效性是有时间限制的
+ * 我们只能在数据接收的回调函数中使用，如果在其他地方使用，可能是非法的数据 */
 struct ip_globals
 {
   /** The interface that accepted the packet for the current callback invocation. */
+  /* 因为当前协议栈支持多网络接口功能，所以一个网络接口接收到的网络数据包可能需要另外一个网络接口处理
+   * 这个变量用来记录用来“处理”当前接收到的网络数据包的网络接口指针 */
   struct netif *current_netif;
+  
   /** The interface that received the packet for the current callback invocation. */
+  /* 因为当前协议栈支持多网络接口功能，所以一个网络接口接收到的网络数据包可能需要另外一个网络接口处理
+   * 这个变量用来记录“接收到”当前网络数据包的网络接口指针 */
   struct netif *current_input_netif;
+  
 #if LWIP_IPV4
   /** Header of the input packet currently being processed. */
+  /* 表示当前接收到的 IPv4 数据包的协议头结构 */
   const struct ip_hdr *current_ip4_header;
 #endif /* LWIP_IPV4 */
+
 #if LWIP_IPV6
   /** Header of the input IPv6 packet currently being processed. */
+  /* 表示当前接收到的 IPv6 数据包的协议头结构 */
   struct ip6_hdr *current_ip6_header;
 #endif /* LWIP_IPV6 */
+
   /** Total header length of current_ip4/6_header (i.e. after this, the UDP/TCP header starts) */
+  /* 表示在 IP 协议数据包中，IP 协议头一共占用的字节数，我们可以通过这个变量快速定位 UDP/TCP 协议头位置 */
   u16_t current_ip_header_tot_len;
+
   /** Source IP address of current_header */
+  /* 表示当前 IP 协议数据包的“源” IP 地址 */
   ip_addr_t current_iphdr_src;
+  
   /** Destination IP address of current_header */
+  /* 表示当前 IP 协议数据包的“目的” IP 地址 */
   ip_addr_t current_iphdr_dest;
 };
 extern struct ip_globals ip_data;

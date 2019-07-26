@@ -210,11 +210,17 @@ typedef enum {
 #define PBUF_FLAG_IS_CUSTOM 0x02U
 
 /** indicates this pbuf is UDP multicast to be looped back */
+/* 表示当前通过 udp 多播协议发送的数据包需要回环发送到当前网络接口上 */
 #define PBUF_FLAG_MCASTLOOP 0x04U
+
 /** indicates this pbuf was received as link-level broadcast */
+/* 表示链路层接收到的是一个广播包 */
 #define PBUF_FLAG_LLBCAST   0x08U
+
 /** indicates this pbuf was received as link-level multicast */
+/* 表示链路层接收到的是一个多播包 */
 #define PBUF_FLAG_LLMCAST   0x10U
+
 /** indicates this pbuf includes a TCP FIN flag */
 #define PBUF_FLAG_TCP_FIN   0x20U
 

@@ -214,6 +214,16 @@ igmp_report_groups(struct netif *netif)
  * @return a struct igmp_group* if the group has been found,
  *         NULL if the group wasn't found.
  */
+/*********************************************************************************************************
+** 函数名称: igmp_lookfor_group
+** 功能描述: 在指定的网络接口的 igmp 组地址链表上查找是否有和指定的组播地址匹配的组
+** 输	 入: ifp - 需要查找的网络接口指针
+**         : addr- 需要查找的组播地址
+** 输	 出: group - 找到的组结构指针
+**         : NULL - 没找到和指定的组播地址匹配的组
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 struct igmp_group *
 igmp_lookfor_group(struct netif *ifp, const ip4_addr_t *addr)
 {

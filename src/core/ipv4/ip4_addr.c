@@ -100,6 +100,15 @@ ip4_addr_isbroadcast_u32(u32_t addr, const struct netif *netif)
  * @param netmask the IPv4 netmask to check (in network byte order!)
  * @return 1 if the netmask is valid, 0 if it is not
  */
+/*********************************************************************************************************
+** 函数名称: ip4_addr_netmask_valid
+** 功能描述: 校验指定的网络掩码值是否是有效的网络掩码
+** 输	 入: netmask - 需要校验的网络掩码值
+** 输	 出: 1 - 网络掩码值有效
+**         : 0 - 网络掩码值无效
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 u8_t
 ip4_addr_netmask_valid(u32_t netmask)
 {
@@ -107,18 +116,22 @@ ip4_addr_netmask_valid(u32_t netmask)
   u32_t nm_hostorder = lwip_htonl(netmask);
 
   /* first, check for the first zero */
+  /* 从指定的网络掩码高位开始向低位查找第一个 0 bit 的位置 */
   for (mask = 1UL << 31 ; mask != 0; mask >>= 1) {
     if ((nm_hostorder & mask) == 0) {
       break;
     }
   }
+  
   /* then check that there is no one */
+  /* 从网络掩码最高位的 0 bit 开始向低位查找，判读是否都为 0，如果有 1 存在，则为非法网络掩码 */
   for (; mask != 0; mask >>= 1) {
     if ((nm_hostorder & mask) != 0) {
       /* there is a one after the first zero -> invalid */
       return 0;
     }
   }
+  
   /* no one after the first zero -> valid */
   return 1;
 }
@@ -130,6 +143,15 @@ ip4_addr_netmask_valid(u32_t netmask)
  * @param cp IP address in ascii representation (e.g. "127.0.0.1")
  * @return ip address in network order
  */
+/*********************************************************************************************************
+** 函数名称: ipaddr_addr
+** 功能描述: 校验指定的 ASCII 类型 IPv4 地址是否有效，如果有效则将其转换成数值类型的 IPv4 地址
+** 输	 入: cp - 需要校验并转换的 ASCII 类型 IPv4 地址
+** 输	 出: u32_t - 转换后的网络字节序的数值类型的 IPv4 地址
+**         : IPADDR_NONE - 转换失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 u32_t
 ipaddr_addr(const char *cp)
 {
@@ -152,6 +174,16 @@ ipaddr_addr(const char *cp)
  * @param addr pointer to which to save the ip address in network order
  * @return 1 if cp could be converted to addr, 0 on failure
  */
+/*********************************************************************************************************
+** 函数名称: ip4addr_aton
+** 功能描述: 校验指定的 ASCII 类型 IPv4 地址是否有效，如果有效则将其转换成数值类型的 IPv4 地址
+** 输	 入: cp - 需要校验并转换的 ASCII 类型 IPv4 地址
+**         : addr - 转换后的网络字节序的数值类型的 IPv4 地址
+** 输	 出: 1 - 转换成功
+**         : 0 - 转换失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 int
 ip4addr_aton(const char *cp, ip4_addr_t *addr)
 {
@@ -274,6 +306,15 @@ ip4addr_aton(const char *cp, ip4_addr_t *addr)
  * @return pointer to a global static (!) buffer that holds the ASCII
  *         representation of addr
  */
+/*********************************************************************************************************
+** 函数名称: ip4addr_ntoa
+** 功能描述: 把指定的数值类型 IPv4 地址转换成与其对应的 ASCII 类型“点”表示法的 IPv4 地址
+** 输	 入: addr - 需要转换的网络字节序的数值类型的 IPv4 地址
+** 输	 出: char * - 存储转换结果的缓冲区地址
+**         : NULL - 转换失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 char *
 ip4addr_ntoa(const ip4_addr_t *addr)
 {
@@ -290,6 +331,17 @@ ip4addr_ntoa(const ip4_addr_t *addr)
  * @return either pointer to buf which now holds the ASCII
  *         representation of addr or NULL if buf was too small
  */
+/*********************************************************************************************************
+** 函数名称: ip4addr_ntoa_r
+** 功能描述: 把指定的数值类型 IPv4 地址转换成与其对应的 ASCII 类型“点”表示法的 IPv4 地址（这个函数是可重入的）
+** 输	 入: addr - 需要转换的网络字节序的数值类型的 IPv4 地址
+**         : buf - 调用者提供的用于存储转换后的 ASCII 类型 IPv4 地址的缓冲区
+**         : buflen - 调用者提供的缓冲区长度
+** 输	 出: buf - 存储转换结果的缓冲区地址
+**         : NULL - 转换失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 char *
 ip4addr_ntoa_r(const ip4_addr_t *addr, char *buf, int buflen)
 {

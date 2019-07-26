@@ -740,6 +740,7 @@
  * interfaces. If you are going to run lwIP on a device with only one network
  * interface, define this to 0.
  */
+/* 表示当前网络协议栈支持跨网络数据包路由功能，这个功能只有在当前系统支持多网络接口的时候才有用 */
 #if !defined IP_FORWARD || defined __DOXYGEN__
 #define IP_FORWARD                      0
 #endif
@@ -778,6 +779,7 @@
  *      IP_OPTIONS_ALLOWED==1: IP options are allowed (but not parsed).
  */
 #if !defined IP_OPTIONS_ALLOWED || defined __DOXYGEN__
+/* 表示在 IP 协议头中是否支持添加 IP 选项扩展字段 */
 #define IP_OPTIONS_ALLOWED              1
 #endif
 
@@ -833,6 +835,9 @@
  * ATTENTION: When this is 1, make sure your netif driver correctly marks incoming
  * link-layer-broadcast/multicast packets as such using the corresponding pbuf flags!
  */
+/* 如果 IP_FORWARD_ALLOW_TX_ON_RX_NETIF==1 表示我们在网络数据包路由的时候允许从
+ * 接收到网络数据包的网络接口上把接收到的网络数据包再发送出去，这个只有在无线网络
+ * 中需要启用，默认情况下不启动 */
 #if !defined IP_FORWARD_ALLOW_TX_ON_RX_NETIF || defined __DOXYGEN__
 #define IP_FORWARD_ALLOW_TX_ON_RX_NETIF 0
 #endif
@@ -896,6 +901,7 @@
  * LWIP_RAW==1: Enable application layer to hook into the IP layer itself.
  */
 #if !defined LWIP_RAW || defined __DOXYGEN__
+/* LWIP_RAW==1 表示启用 socket 的原始模式功能 */
 #define LWIP_RAW                        0
 #endif
 
@@ -1698,6 +1704,9 @@
  * This is only needed when no real netifs are available. If at least one other
  * netif is available, loopback traffic uses this netif.
  */
+/* 表示当前系统支持回环接口（IPv4 地址为 127.0.0.1），在接收到一个回环网络数据包的后
+ * 如果系统内没有可用非回环网络接口处理这个数据包，才会使用这个网络接口来处理接收到的
+ * 回环网络数据包，否则使用其他的网络接口来处理接收到的回环网络数据包 */
 #if !defined LWIP_HAVE_LOOPIF || defined __DOXYGEN__
 #define LWIP_HAVE_LOOPIF                (LWIP_NETIF_LOOPBACK && !LWIP_SINGLE_NETIF)
 #endif
@@ -1705,6 +1714,7 @@
 /**
  * LWIP_LOOPIF_MULTICAST==1: Support multicast/IGMP on loop interface (127.0.0.1).
  */
+/* 表示我们可以在回环网络接口（IPv4 地址为 127.0.0.1）上发送多播数据 */
 #if !defined LWIP_LOOPIF_MULTICAST || defined __DOXYGEN__
 #define LWIP_LOOPIF_MULTICAST           0
 #endif
@@ -1713,6 +1723,7 @@
  * LWIP_NETIF_LOOPBACK==1: Support sending packets with a destination IP
  * address equal to the netif IP address, looping them back up the stack.
  */
+/* 表示可以把一个数据包发送给指定的网络接口本身，即给自己发送网络数据包 */
 #if !defined LWIP_NETIF_LOOPBACK || defined __DOXYGEN__
 #define LWIP_NETIF_LOOPBACK             0
 #endif
@@ -2285,7 +2296,9 @@
  * per netif.
  * ATTENTION: if enabled, the CHECKSUM_GEN_* and CHECKSUM_CHECK_* defines must be enabled!
  */
-/* 表示是否需要对发送和接收的不同类型数据包生成或者校验“校验和”字段数据内容 */
+/* 表示协议栈不同协议层的校验和是否需要由网络接口自己计算，而不是使用默认的计算函数生成
+ * 对应协议层的校验和，和这个选项相关的标志变量参考 NETIF_CHECKSUM_GEN_IP，表示的是需要
+ * 网络接口计算哪些协议层的校验和 */
 #if !defined LWIP_CHECKSUM_CTRL_PER_NETIF || defined __DOXYGEN__
 #define LWIP_CHECKSUM_CTRL_PER_NETIF    0
 #endif
@@ -2873,6 +2886,8 @@
  * (i.e. free it when done).
  */
 #ifdef __DOXYGEN__
+/* 我们可以通过实现这个函数指针的钩子函数，在接收到一个 IPv4 数据包的时候，对 IPV4 
+ * 数据包进行一些自定义的处理 */
 #define LWIP_HOOK_IP4_INPUT(pbuf, input_netif)
 #endif
 
@@ -2888,6 +2903,8 @@
  * - the destination netif
  * - NULL if no destination netif is found. In that case, ip_route() continues as normal.
  */
+/* 这个指针指向一个钩子函数，这个钩子函数实现了根据指定的“目的” IP 地址计算我们需要使用当前系统内
+ * 哪个有效网络接口来发送指定的数据包 */
 #ifdef __DOXYGEN__
 #define LWIP_HOOK_IP4_ROUTE()
 #endif
@@ -2906,6 +2923,9 @@
  * - NULL if no destination netif is found. In that case, ip_route() continues as normal.
  */
 #ifdef __DOXYGEN__
+/* 这个指针指向一个钩子函数，这个钩子函数实现了根据指定的“源” IP 地址计算我们需要使用当前系统内
+ * 哪个有效网络接口来发送指定的数据包，通过实现这种路由策略，我们可以把指定的 IP 设备发出的所
+ * 有数据包发送到指定的路由设备处 */
 #define LWIP_HOOK_IP4_ROUTE_SRC(src, dest)
 #endif
 
@@ -2926,6 +2946,7 @@
  * - 0: don't forward
  * - -1: no decision. In that case, ip4_canforward() continues as normal.
  */
+/* 我们自己可以通过实现这个函数指针添加一个自定义的钩子函数判断指定 IPv4 地址是否可以路由 */
 #ifdef __DOXYGEN__
 #define LWIP_HOOK_IP4_CANFORWARD(src, dest)
 #endif

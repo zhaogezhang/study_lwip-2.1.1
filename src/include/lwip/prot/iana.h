@@ -59,6 +59,7 @@ enum lwip_iana_hwtype {
  * Port numbers
  * https://www.iana.org/assignments/service-names-port-numbers/service-names-port-numbers.txt
  */
+/* 定义了 IANA（The Internet Assigned Numbers Authority，互联网数字分配机构）分配的几个常用应用服务端口号 */
 enum lwip_iana_port_number {
   /** SMTP */
   LWIP_IANA_PORT_SMTP        = 25,

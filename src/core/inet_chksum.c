@@ -559,7 +559,15 @@ ip_chksum_pseudo_partial(struct pbuf *p, u8_t proto, u16_t proto_len,
  * @param len length of the buffer to calculate the checksum
  * @return checksum (as u16_t) to be saved directly in the protocol header
  */
-
+/*********************************************************************************************************
+** 函数名称: inet_chksum
+** 功能描述: 计算指定数据的校验和然后取反
+** 输	 入: dataptr - 需要计算校验和数据的起始地址
+**		   : len - 需要计算校验和数据的长度
+** 输	 出: u16_t - 计算后的校验和然后取反对应的值（网络字节序）
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 u16_t
 inet_chksum(const void *dataptr, u16_t len)
 {

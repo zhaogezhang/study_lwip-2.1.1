@@ -39,6 +39,8 @@
 
 #include "lwip/opt.h"
 
+/* 表示当前协议栈是否启动网络接口回环功能，即指定的网络接口向自己发送网络数据包
+ * 或者指定的网络接口向回环网络接口（IPv4 地址为 127.0.0.1）发送数据包 */
 #define ENABLE_LOOPBACK (LWIP_NETIF_LOOPBACK || LWIP_HAVE_LOOPIF)
 
 #include "lwip/err.h"
@@ -375,12 +377,15 @@ struct netif {
   const char*  hostname;
 #endif /* LWIP_NETIF_HOSTNAME */
 
-/* 表示是否需要对发送和接收的不同类型数据包生成或者校验“校验和”字段数据内容 */
+/* 表示协议栈不同协议层的校验和是否需要由网络接口自己计算，而不是使用默认的计算函数生成
+ * 对应协议层的校验和，和这个选项相关的标志变量参考 NETIF_CHECKSUM_GEN_IP，表示的是需要
+ * 网络接口计算哪些协议层的校验和 */
 #if LWIP_CHECKSUM_CTRL_PER_NETIF
   u16_t chksum_flags;
 #endif /* LWIP_CHECKSUM_CTRL_PER_NETIF*/
 
   /** maximum transfer unit (in bytes) */
+  /* 表示当前网路接口支持的最大 MTU字节数，如果设置为 0，表示不支持分片功能 */
   u16_t mtu;
 #if LWIP_IPV6 && LWIP_ND6_ALLOW_RA_UPDATES
   /** maximum transfer unit (in bytes), updated by RA */
@@ -463,6 +468,7 @@ struct netif {
 #if LWIP_CHECKSUM_CTRL_PER_NETIF
 #define NETIF_SET_CHECKSUM_CTRL(netif, chksumflags) do { \
   (netif)->chksum_flags = chksumflags; } while(0)
+/* 判断指定的网路接口的指定校验和标志位是否被置位 */
 #define IF__NETIF_CHECKSUM_ENABLED(netif, chksumflag) if (((netif) == NULL) || (((netif)->chksum_flags & (chksumflag)) != 0))
 #else /* LWIP_CHECKSUM_CTRL_PER_NETIF */
 #define NETIF_SET_CHECKSUM_CTRL(netif, chksumflags)
@@ -547,7 +553,9 @@ void netif_set_remove_callback(struct netif *netif, netif_status_callback_fn rem
 
 void netif_set_link_up(struct netif *netif);
 void netif_set_link_down(struct netif *netif);
+
 /** Ask if a link is up */
+/* 判断指定的网络接口状态是否为 LINK_UP */
 #define netif_is_link_up(netif) (((netif)->flags & NETIF_FLAG_LINK_UP) ? (u8_t)1 : (u8_t)0)
 
 #if LWIP_NETIF_LINK_CALLBACK

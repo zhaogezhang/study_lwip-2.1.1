@@ -49,11 +49,14 @@ extern "C" {
 #ifdef PACK_STRUCT_USE_INCLUDES
 #  include "arch/bpstruct.h"
 #endif
+
+/* 定义 IPv4 地址表示结构 */
 PACK_STRUCT_BEGIN
 struct ip4_addr_packed {
   PACK_STRUCT_FIELD(u32_t addr);
 } PACK_STRUCT_STRUCT;
 PACK_STRUCT_END
+
 #ifdef PACK_STRUCT_USE_INCLUDES
 #  include "arch/epstruct.h"
 #endif
@@ -68,6 +71,8 @@ typedef struct ip4_addr_packed ip4_addr_p_t;
 #ifdef PACK_STRUCT_USE_INCLUDES
 #  include "arch/bpstruct.h"
 #endif
+
+/* 定义了 IPv4 协议头数据结构 */
 PACK_STRUCT_BEGIN
 /* The IPv4 header */
 struct ip_hdr {
@@ -96,11 +101,13 @@ struct ip_hdr {
   PACK_STRUCT_FLD_S(ip4_addr_p_t dest);
 } PACK_STRUCT_STRUCT;
 PACK_STRUCT_END
+
 #ifdef PACK_STRUCT_USE_INCLUDES
 #  include "arch/epstruct.h"
 #endif
 
 /* Macros to get struct ip_hdr fields: */
+/* 用来读取 IPv4 协议头中不同字段值的宏定义 */
 #define IPH_V(hdr)  ((hdr)->_v_hl >> 4)
 #define IPH_HL(hdr) ((hdr)->_v_hl & 0x0f)
 #define IPH_HL_BYTES(hdr) ((u8_t)(IPH_HL(hdr) * 4))
@@ -114,6 +121,7 @@ PACK_STRUCT_END
 #define IPH_CHKSUM(hdr) ((hdr)->_chksum)
 
 /* Macros to set struct ip_hdr fields: */
+/* 用来设置 IPv4 协议头中不同字段值的宏定义 */
 #define IPH_VHL_SET(hdr, v, hl) (hdr)->_v_hl = (u8_t)((((v) << 4) | (hl)))
 #define IPH_TOS_SET(hdr, tos) (hdr)->_tos = (tos)
 #define IPH_LEN_SET(hdr, len) (hdr)->_len = (len)

@@ -304,6 +304,15 @@ icmperr:
  *          p->payload pointing to the IP header
  * @param t type of the 'unreachable' packet
  */
+/*********************************************************************************************************
+** 函数名称: icmp_dest_unreach
+** 功能描述: 发送一个目的地址不可达的 icmp 数据包，一般会在 ip_input 和 udp_input 中调用
+** 输	 入: p - 网卡驱动程序接收到的 IPv4 数据包
+**         : icmp_dur_type - 数据包不可达的原因
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 icmp_dest_unreach(struct pbuf *p, enum icmp_dur_type t)
 {

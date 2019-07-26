@@ -110,6 +110,7 @@ struct netif;
 #define IP_EXPERIMENTAL(a)  (((u32_t)(a) & 0xf0000000UL) == 0xf0000000UL)
 #define IP_BADCLASS(a)      (((u32_t)(a) & 0xf0000000UL) == 0xf0000000UL)
 
+/* 定义回环网络的网络地址值，这个是官方值 */
 #define IP_LOOPBACKNET      127                 /* official! */
 
 /** Set an IP address given by the four byte-parts */
@@ -128,8 +129,11 @@ struct netif;
 #define ip4_addr_set_any(ipaddr)      ((ipaddr)->addr = IPADDR_ANY)
 /** Set address to loopback address */
 #define ip4_addr_set_loopback(ipaddr) ((ipaddr)->addr = PP_HTONL(IPADDR_LOOPBACK))
+
 /** Check if an address is in the loopback region */
+/* 判断指定的 IPv4 地址是否是回环网络域内的 IPv4 地址 */
 #define ip4_addr_isloopback(ipaddr)    (((ipaddr)->addr & PP_HTONL(IP_CLASSA_NET)) == PP_HTONL(((u32_t)IP_LOOPBACKNET) << 24))
+
 /** Safely copy one IP address to another and change byte order
  * from host- to network-order. */
 #define ip4_addr_set_hton(dest, src) ((dest)->addr = \
@@ -137,6 +141,7 @@ struct netif;
                                lwip_htonl((src)->addr)))
 /** IPv4 only: set the IP address given as an u32_t */
 #define ip4_addr_set_u32(dest_ipaddr, src_u32) ((dest_ipaddr)->addr = (src_u32))
+
 /** IPv4 only: get the IP address as an u32_t */
 #define ip4_addr_get_u32(src_ipaddr) ((src_ipaddr)->addr)
 

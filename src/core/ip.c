@@ -65,6 +65,7 @@ struct ip_globals ip_data;
 
 #if LWIP_IPV4 && LWIP_IPV6
 
+/* 初始化一个全局 ANY 类型的 IP 地址变量（兼容 IPv4 和 IPv6） */
 const ip_addr_t ip_addr_any_type = IPADDR_ANY_TYPE_INIT;
 
 /**
@@ -76,6 +77,15 @@ const ip_addr_t ip_addr_any_type = IPADDR_ANY_TYPE_INIT;
  * @return pointer to a global static (!) buffer that holds the ASCII
  *         representation of addr
  */
+/*********************************************************************************************************
+** 函数名称: ipaddr_ntoa
+** 功能描述: 把指定的数值类型 IP 地址转换成与其对应的 ASCII 类型 IP 地址
+** 输	 入: addr - 需要被转换的数值类型 IP 地址（兼容 IPv4 和 IPv6）
+** 输	 出: char * - 转换后的 ASCII 类型 IP 地址
+**         : NULL - 转换失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 char *ipaddr_ntoa(const ip_addr_t *addr)
 {
   if (addr == NULL) {
@@ -98,6 +108,17 @@ char *ipaddr_ntoa(const ip_addr_t *addr)
  * @return either pointer to buf which now holds the ASCII
  *         representation of addr or NULL if buf was too small
  */
+/*********************************************************************************************************
+** 函数名称: ipaddr_ntoa_r
+** 功能描述: 把指定的数值类型 IP 地址转换成与其对应的 ASCII 类型 IP 地址，是可重入函数
+** 输	 入: addr - 需要被转换的数值类型 IP 地址（兼容 IPv4 和 IPv6）
+**         : buf - 调用者提供的用来存储转换后的 ASCII 类型 IP 地址
+**         : buflen - 调用者提供的缓冲区长度
+** 输	 出: char * - 转换后的 ASCII 类型 IP 地址
+**		   : NULL - 转换失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 char *ipaddr_ntoa_r(const ip_addr_t *addr, char *buf, int buflen)
 {
   if (addr == NULL) {
@@ -119,6 +140,16 @@ char *ipaddr_ntoa_r(const ip_addr_t *addr, char *buf, int buflen)
  * @param addr conversion result is stored here
  * @return 1 on success, 0 on error
  */
+/*********************************************************************************************************
+** 函数名称: ipaddr_aton
+** 功能描述: 把指定的 ASCII 类型 IP 地址转换成与其对应的数值类型 IP 地址
+** 输	 入: cp - 需要被转换的 ASCII 类型 IP 地址（兼容 IPv4 和 IPv6）
+**         : addr - 用来存储转换后的数值类型 IP 地址
+** 输	 出: 1 - 转换成功
+**		   : 0 - 转换失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 int
 ipaddr_aton(const char *cp, ip_addr_t *addr)
 {
@@ -150,6 +181,16 @@ ipaddr_aton(const char *cp, ip_addr_t *addr)
  * If both IP versions are enabled, this function can dispatch packets to the correct one.
  * Don't call directly, pass to netif_add() and call netif->input().
  */
+/*********************************************************************************************************
+** 函数名称: ip_input
+** 功能描述: 处理下层协议接收到的 IP 数据包，根据数据包协议类型分发到不同模块进行处理
+** 输	 入: p - 下层协议接收到的 IP 数据包（兼容 IPv4 和 IPv6）
+**         : inp - 接收到 IP 数据包的网络接口指针
+** 输	 出: 1 - 转换成功
+**		   : 0 - 转换失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 err_t
 ip_input(struct pbuf *p, struct netif *inp)
 {

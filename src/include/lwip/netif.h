@@ -385,8 +385,9 @@ struct netif {
 #endif /* LWIP_CHECKSUM_CTRL_PER_NETIF*/
 
   /** maximum transfer unit (in bytes) */
-  /* 表示当前网路接口支持的最大 MTU字节数，如果设置为 0，表示不支持分片功能 */
+  /* 表示当前网路接口支持的最大 MTU（物理链路层）字节数，如果设置为 0，表示不支持分片功能 */
   u16_t mtu;
+
 #if LWIP_IPV6 && LWIP_ND6_ALLOW_RA_UPDATES
   /** maximum transfer unit (in bytes), updated by RA */
   u16_t mtu6;

@@ -467,6 +467,8 @@
  * reassembly (whole packets, not fragments!)
  */
 #if !defined MEMP_NUM_REASSDATA || defined __DOXYGEN__
+/* 表示当前协议栈支持的可同时进行数据包重组的完整数据包个数，在重组数据包的
+ * 时候，会为每个完整数据包都建立一个 ip_reassdata 队列 */
 #define MEMP_NUM_REASSDATA              5
 #endif
 
@@ -732,6 +734,7 @@
  * LWIP_IPV4==1: Enable IPv4
  */
 #if !defined LWIP_IPV4 || defined __DOXYGEN__
+/* 表示是否启用 lwip 协议栈的 IPv4 模块功能 */
 #define LWIP_IPV4                       1
 #endif
 
@@ -751,6 +754,7 @@
  * via IP_FRAG.
  */
 #if !defined IP_REASSEMBLY || defined __DOXYGEN__
+/* 表示是否启动 lwip 协议栈分片数据包重组功能模块 */
 #define IP_REASSEMBLY                   1
 #endif
 
@@ -760,6 +764,7 @@
  * controlled via IP_REASSEMBLY.
  */
 #if !defined IP_FRAG || defined __DOXYGEN__
+/* 表示是否启动 lwip 协议栈数据包分片功能模块 */
 #define IP_FRAG                         1
 #endif
 
@@ -789,6 +794,7 @@
  * in this time, the whole packet is discarded.
  */
 #if !defined IP_REASS_MAXAGE || defined __DOXYGEN__
+/* 在重组 IP 分片数据包的时候，默认使用的重组超时时间，单位是重组定时器超时周期，默认为 1 秒 */
 #define IP_REASS_MAXAGE                 15
 #endif
 
@@ -801,6 +807,7 @@
  * (PBUF_POOL_SIZE > 2 * IP_REASS_MAX_PBUFS)!
  */
 #if !defined IP_REASS_MAX_PBUFS || defined __DOXYGEN__
+/* 表示当前协议栈在重组分片数据包的过程中，在重组数据包队列中的最多 pbuf（分片数据包）个数 */
 #define IP_REASS_MAX_PBUFS              10
 #endif
 
@@ -1675,6 +1682,8 @@
  *   }
  */
 #if !defined LWIP_NETIF_TX_SINGLE_PBUF || defined __DOXYGEN__
+/* 表示在网络层发送数据包的时候，每次发送的网络数据包是否需要存储在一个物理地址
+ * 连续的 pbuf 缓冲区空间中，这样做的弊端是每个“分片”数据包都需要执行一次数据拷贝 */
 #define LWIP_NETIF_TX_SINGLE_PBUF       0
 #endif /* LWIP_NETIF_TX_SINGLE_PBUF */
 

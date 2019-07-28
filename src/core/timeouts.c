@@ -74,6 +74,7 @@
 
 /** This array contains all stack-internal cyclic timers. To get the number of
  * timers, use LWIP_ARRAYSIZE() */
+/* 定义当前协议栈中使用的所有软件循环定时器 */
 const struct lwip_cyclic_timer lwip_cyclic_timers[] = {
 #if LWIP_TCP
   /* The TCP timer is a special case: it does not have to run always and
@@ -114,6 +115,8 @@ const struct lwip_cyclic_timer lwip_cyclic_timers[] = {
 #endif /* LWIP_IPV6_DHCP6 */
 #endif /* LWIP_IPV6 */
 };
+
+/* 表示当前协议栈中使用的软件循环定时器个数 */
 const int lwip_num_cyclic_timers = LWIP_ARRAYSIZE(lwip_cyclic_timers);
 
 #if LWIP_TIMERS && !LWIP_TIMERS_CUSTOM

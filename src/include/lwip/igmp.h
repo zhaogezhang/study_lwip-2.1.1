@@ -93,7 +93,10 @@ struct igmp_group {
   ip4_addr_t         group_address;
   
   /** signifies we were the last person to report */
-  /* 表示当前多播组的最后一个成员报告信息是否已经发送完成 */
+  /* 表示当前主机是否是当前多播组中的最后一个主机设备，如果是多播组中的最后一个设备
+   * 在这个设备离开多播组的时候，需要发送一个 IGMP_LEAVE_GROUP 消息到路由器，因为当
+   * 前的 lwip   协议栈在实现 igmp 功能时没有跟踪记录哪个设备是当前多播组中的最后一个
+   * 主机，所以每个主机在离开多播组的时候都会发送 IGMP_LEAVE_GROUP 消息到路由器 */
   u8_t               last_reporter_flag;
   
   /** current state of the group */

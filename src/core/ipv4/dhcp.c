@@ -62,7 +62,58 @@
  * Author: Leon Woestenberg <leon.woestenberg@gmx.net>
  *
  */
-
+/* DHCP 数据包协议格式，详细内容见链接：https://tools.ietf.org/html/rfc2131
+ *
+ *   0                   1                   2                   3
+ *   0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+ *   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *   |     op (1)    |   htype (1)   |   hlen (1)    |   hops (1)    |
+ *   +---------------+---------------+---------------+---------------+
+ *   |                            xid (4)                            |
+ *   +-------------------------------+-------------------------------+
+ *   |           secs (2)            |           flags (2)           |
+ *   +-------------------------------+-------------------------------+
+ *   |                         ciaddr  (4)                           |
+ *   +---------------------------------------------------------------+
+ *   |                         yiaddr  (4)                           |
+ *   +---------------------------------------------------------------+
+ *   |                         siaddr  (4)                           |
+ *   +---------------------------------------------------------------+
+ *   |                         giaddr  (4)                           |
+ *   +---------------------------------------------------------------+
+ *   |                         chaddr  (16)                          |
+ *   +---------------------------------------------------------------+
+ *   |                         sname   (64)                          |
+ *   +---------------------------------------------------------------+
+ *   |                         file    (128)                         |
+ *   +---------------------------------------------------------------+
+ *   |                         options (variable)                    |
+ *   +---------------------------------------------------------------+
+ *
+ *   注释说明：每个选项字段括号内的数字表示的是对应字段的 8 位字节数
+ *   报文类型（op）：1 表示 dhcp 客户端请求报文，2 表示 dhcp 服务端回应报文
+ *   硬件地址类型（htype）：1 表示 10Mb/s 的以太网的硬件地址
+ *   硬件地址长度（hlen）；以太网中该值为 6
+ *   当前数据包跳数（hops）：dhcp 客户端默认设置为 0，在通过中继代理设备通信时中继代理设备可
+ *       选择性的处理这个数据
+ *   事务 ID（xid）；由客户端设置为随机数，客户端通过这个值来匹配 dhcp 请求包和 dhcp 应答包
+ *   消逝时间（secs）：由客户端填充，表示从客户端开始获得 IPv4 地址或 IPv4 地址续借后消逝的秒数
+ *   标志字段（flags）：目前只使用了最左边的一个比特位，该位为 0，表示单播，为 1 表示广播
+ *   客户端的 IPv4 地址（ciaddr）：只有客户端是 Bound、Renew、Rebinding 状态，并且能响应 ARP 
+ *       请求时，才能被填充
+ *   你自己的 IPv4 地址（yiaddr）：“你自己”或（客户端）的 IPv4 地址
+ *   服务端的 IPv4 地址（siaddr）：在 bootstrap 程序中使用的下一个服务器的 IPv4 地址，在 dhcp 
+ *       服务器发送的 DHCPOFFER、DHCPACK 数据包中返回
+ *   中继设备 IPv4 地址（giaddr）：dhcp 过程中使用的中继代理设备的 IPv4 地址
+ *   客户端硬件地址（chaddr）：客户端必须设置它的客户端硬件地址字段。虽然 UDP 数据包中的以太网帧
+ *       协议头中也有该字段，但通常查看太网帧协议头获取该值比较困难或者说不可能，而在 UDP 协议承
+ *       载的 dhcp 报文中设置该字段，用户进程就可以很容易地获取该值
+ *   服务器主机名（sname）：可选择性设置的服务器主机名，该字段是空结尾符的字符串，由服务器填写
+ *   启动文件名（file）：是一个空结尾符的字符串，dhcp Discover 报文中是 generic 名字或空字符
+ *       dhcp Offer 报文中提供有效的目录路径全名
+ *   可选参数域（options）：格式为“选项代码 + 选项长度 + 选项数据”
+ *
+ */
 #include "lwip/opt.h"
 
 #if LWIP_IPV4 && LWIP_DHCP /* don't build if not configured for use in lwipopts.h */
@@ -82,12 +133,17 @@
 
 #include <string.h>
 
+/* 包含用户实现的自定义钩子函数头文件路径 */
 #ifdef LWIP_HOOK_FILENAME
 #include LWIP_HOOK_FILENAME
 #endif
+
+/* 在发送 dhcp 数据包之前，用来追加用户自定义“选项”负载数据的自定义钩子函数指针 */
 #ifndef LWIP_HOOK_DHCP_APPEND_OPTIONS
 #define LWIP_HOOK_DHCP_APPEND_OPTIONS(netif, dhcp, state, msg, msg_type, options_len_ptr)
 #endif
+
+/* 在处理接收到的 dhcp 数据包之前，用来解析用户自定义“选项”负载数据的自定义钩子函数指针 */
 #ifndef LWIP_HOOK_DHCP_PARSE_OPTION
 #define LWIP_HOOK_DHCP_PARSE_OPTION(netif, dhcp, state, msg, msg_type, option, len, pbuf, offset) do { LWIP_UNUSED_ARG(msg); } while(0)
 #endif
@@ -95,6 +151,7 @@
 /** DHCP_CREATE_RAND_XID: if this is set to 1, the xid is created using
  * LWIP_RAND() (this overrides DHCP_GLOBAL_XID)
  */
+/* DHCP_CREATE_RAND_XID=1 表示每一个 dhcp 数据包的事务 ID（xid）都是通过随机数 LWIP_RAND() 生成的 */
 #ifndef DHCP_CREATE_RAND_XID
 #define DHCP_CREATE_RAND_XID        1
 #endif
@@ -110,9 +167,12 @@
 
 /** DHCP_OPTION_MAX_MSG_SIZE is set to the MTU
  * MTU is checked to be big enough in dhcp_start */
+/* dhcp 数据包的最大长度，默认设置为当前网络接口的 MTU */
 #define DHCP_MAX_MSG_LEN(netif)        (netif->mtu)
 #define DHCP_MAX_MSG_LEN_MIN_REQUIRED  576
+
 /** Minimum length for reply before packet is parsed */
+/* dhcp 响应数据包在解析前的最小长度 */
 #define DHCP_MIN_REPLY_LEN             44
 
 #define REBOOT_TRIES                2

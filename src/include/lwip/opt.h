@@ -935,6 +935,7 @@
 /**
  * LWIP_DHCP==1: Enable DHCP module.
  */
+/* 表示当前协议栈是否启用 dhcp 模块功能 */
 #if !defined LWIP_DHCP || defined __DOXYGEN__
 #define LWIP_DHCP                       0
 #endif
@@ -2775,6 +2776,7 @@
  * providing data types that are need in this file.
  */
 #ifdef __DOXYGEN__
+/* 表示用户实现的自定义钩子函数头文件路径 */
 #define LWIP_HOOK_FILENAME "path/to/my/lwip_hooks.h"
 #endif
 
@@ -3138,6 +3140,7 @@
  *   [...]
  */
 #ifdef __DOXYGEN__
+/* 在发送 dhcp 数据包之前，用来追加用户自定义“选项”负载数据的自定义钩子函数指针 */
 #define LWIP_HOOK_DHCP_APPEND_OPTIONS(netif, dhcp, state, msg, msg_type, options_len_ptr)
 #endif
 
@@ -3166,6 +3169,7 @@
  *  u8_t *ptr = (u8_t*)pbuf_get_contiguous(p, buf, sizeof(buf), LWIP_MIN(option_len, sizeof(buf)), offset);
  */
 #ifdef __DOXYGEN__
+/* 在处理接收到的 dhcp 数据包之前，用来解析用户自定义“选项”负载数据的自定义钩子函数指针 */
 #define LWIP_HOOK_DHCP_PARSE_OPTION(netif, dhcp, state, msg, msg_type, option, len, pbuf, offset)
 #endif
 

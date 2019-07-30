@@ -77,6 +77,32 @@ extern "C" {
    beginning of a PCB type definition. It is located here so that
    changes to this common part are made in one location instead of
    having to change all PCB structs. */
+/*
+ * local_ip - 表示当前协议控制块的本地 IP 地址，在接收 udp 数据时，用来匹配接收到的  
+ *            udp 数据包的“目的”IP 地址的，只有在这两个地址匹配的情况下 udp 模块才会
+ *            处理相应的 udp 数据包，0.0.0.0 表示接收所有 udp 数据包，在发送 udp 数
+ *            据时，表示当前要发送的 udp 数据包的“源”地址，如果这个地址是 0.0.0.0 或
+ *            者多播地址，则使用发送 udp 数据包的网络接口的地址
+ *
+ * remote_ip - 表示当前协议控制块的对端 IP 地址，在接收 udp 数据时，用来匹配接收到的 
+ *             udp 数据包的“源”IP 地址的，只有在这两个地址匹配的情况下 udp 模块才会
+ *             处理相应的 udp 数据包，0.0.0.0 表示接收所有 udp 数据包，在发送 udp 数
+ *             据时，表示当前要发送的 udp 数据包的“目的”地址
+ *
+ * netif_idx - 表示当前协议控制块是否和指定的网络接口绑定在一起，NETIF_NO_INDEX 表示
+ *             没绑定，其他值表示绑定到指定的网络接口，在 udp 接收数据时，表示这个 udp
+ *             协议控制块只会处理从绑定网路接口处接收到的 udp 数据包
+ *
+ * so_options - 表示当前协议控制块的 socket 选项值，例如 SOF_REUSEADDR
+ *
+ * tos - 表示当前协议控制块的服务类型（Type of Service），默认不使用，应用于 QOS 服务
+ *
+ * ttl - 生存时间，即路由器的跳数，每经过一个路由器，该 TTL 减一
+ *
+ * IP_PCB_NETIFHINT - 缓存上一次使用的 arp 地址映射数据在 arp 地址表（一个全局数组）中
+ *                    的索引值，用来提高 arp 转换效率
+ *
+ */
 #define IP_PCB                             \
   /* ip addresses in network byte order */ \
   ip_addr_t local_ip;                      \
@@ -100,9 +126,16 @@ struct ip_pcb {
 /*
  * Option flags per-socket. These are the same like SO_XXX in sockets.h
  */
+/* 如果设置这个 socket 选项，表示允许多个协议控制块复用同一个“本地”地址
+ * 这样，就可以把一个多播数据包或者广播数据包“克隆”并“传输”到每一个地址
+ * 匹配的协议控制块中*/
 #define SOF_REUSEADDR     0x04U  /* allow local address reuse */
+
 #define SOF_KEEPALIVE     0x08U  /* keep connections alive */
+
+/* 如果设置这个 socket 选项，表示允许发送和接收广播数据包 */
 #define SOF_BROADCAST     0x20U  /* permit to send and to receive broadcast messages (see IP_SOF_BROADCAST option) */
+
 
 /* These flags are inherited (e.g. from a listen-pcb to a connection-pcb): */
 #define SOF_INHERITED   (SOF_REUSEADDR|SOF_KEEPALIVE)
@@ -125,13 +158,13 @@ struct ip_globals
   
 #if LWIP_IPV4
   /** Header of the input packet currently being processed. */
-  /* 表示当前接收到的 IPv4 数据包的协议头结构 */
+  /* 如果这个指针不为 NULL，表示当前接收到的数据包是 IPv4 数据包，用来记录接收到的数据包的 IPv4 协议头指针 */
   const struct ip_hdr *current_ip4_header;
 #endif /* LWIP_IPV4 */
 
 #if LWIP_IPV6
   /** Header of the input IPv6 packet currently being processed. */
-  /* 表示当前接收到的 IPv6 数据包的协议头结构 */
+  /* 如果这个指针不为 NULL，表示当前接收到的数据包是 IPv6 数据包，用来记录接收到的数据包的 IPv6 协议头指针 */
   struct ip6_hdr *current_ip6_header;
 #endif /* LWIP_IPV6 */
 
@@ -235,6 +268,7 @@ extern struct ip_globals ip_data;
 /** Union destination address of current_header */
 #define ip_current_dest_addr()   (&ip_data.current_iphdr_dest)
 
+/* 操作 ip 协议控制块中的 so_options 字段的相关接口 */
 /** Gets an IP pcb option (SOF_* flags) */
 #define ip_get_option(pcb, opt)   ((pcb)->so_options & (opt))
 /** Sets an IP pcb option (SOF_* flags) */

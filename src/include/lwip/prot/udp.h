@@ -43,12 +43,15 @@
 extern "C" {
 #endif
 
+/* 表示 udp 协议头字节数 */
 #define UDP_HLEN 8
 
 /* Fields are (of course) in network byte order. */
 #ifdef PACK_STRUCT_USE_INCLUDES
 #  include "arch/bpstruct.h"
 #endif
+
+/* 定义了 udp 协议头结构 */
 PACK_STRUCT_BEGIN
 struct udp_hdr {
   PACK_STRUCT_FIELD(u16_t src);
@@ -57,6 +60,7 @@ struct udp_hdr {
   PACK_STRUCT_FIELD(u16_t chksum);
 } PACK_STRUCT_STRUCT;
 PACK_STRUCT_END
+	
 #ifdef PACK_STRUCT_USE_INCLUDES
 #  include "arch/epstruct.h"
 #endif

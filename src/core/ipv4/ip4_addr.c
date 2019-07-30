@@ -44,7 +44,10 @@
 #include "lwip/netif.h"
 
 /* used by IP4_ADDR_ANY and IP_ADDR_BROADCAST in ip_addr.h */
+/** 表示任何网络 IP 地址：0.0.0.0 */
 const ip_addr_t ip_addr_any = IPADDR4_INIT(IPADDR_ANY);
+
+/** 表示广播 IP 地址：255.255.255.255 */
 const ip_addr_t ip_addr_broadcast = IPADDR4_INIT(IPADDR_BROADCAST);
 
 /**
@@ -73,6 +76,7 @@ ip4_addr_isbroadcast_u32(u32_t addr, const struct netif *netif)
   /* all ones (broadcast) or all zeroes (old skool broadcast) */
   if ((~addr == IPADDR_ANY) ||
       (addr == IPADDR_ANY)) {
+    /* 全为 1 或者全为 0 表示的是全局局域网广播地址 */
     return 1;
     /* no broadcast support on this network interface? */
   } else if ((netif->flags & NETIF_FLAG_BROADCAST) == 0) {
@@ -88,7 +92,7 @@ ip4_addr_isbroadcast_u32(u32_t addr, const struct netif *netif)
              && ((addr & ~ip4_addr_get_u32(netif_ip4_netmask(netif))) ==
                  (IPADDR_BROADCAST & ~ip4_addr_get_u32(netif_ip4_netmask(netif))))) {
     /* => network broadcast address */
-    /* 在同一个子网中并且主机地址全为 1，表示是广播地址 */
+    /* 在同一个子网中并且主机地址全为 1，表示的是子网广播地址 */
     return 1;
   } else {
     return 0;

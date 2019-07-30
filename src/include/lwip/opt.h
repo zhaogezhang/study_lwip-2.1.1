@@ -815,6 +815,7 @@
  * IP_DEFAULT_TTL: Default value for Time-To-Live used by transport layers.
  */
 #if !defined IP_DEFAULT_TTL || defined __DOXYGEN__
+/* 表示 IP 层协议默认使用的 ttl（Time To Live）值 */
 #define IP_DEFAULT_TTL                  255
 #endif
 
@@ -824,6 +825,7 @@
  * on recv operations, you also have to set IP_SOF_BROADCAST_RECV=1.
  */
 #if !defined IP_SOF_BROADCAST || defined __DOXYGEN__
+/* 表示在每个 udp/raw 协议控制块“发送”数据包的时候，是否启动 SOF_BROADCAST 广播选项过滤功能 */
 #define IP_SOF_BROADCAST                0
 #endif
 
@@ -832,6 +834,7 @@
  * filter on recv operations.
  */
 #if !defined IP_SOF_BROADCAST_RECV || defined __DOXYGEN__
+/* 表示在每个 udp/raw 协议控制块“接收”数据包的时候，是否启动 SOF_BROADCAST 广播选项过滤功能 */
 #define IP_SOF_BROADCAST_RECV           0
 #endif
 
@@ -1069,6 +1072,11 @@
  * core support for the corresponding IPv6 options.
  */
 #if !defined LWIP_MULTICAST_TX_OPTIONS || defined __DOXYGEN__
+/* 表示当前协议栈是否启用 IP_MULTICAST_TTL/IP_MULTICAST_IF/IP_MULTICAST_LOOP 多播发送选项 
+ * IP_MULTICAST_TTL - 表示发送多播数据包时是否使用 struct udp_pcb 中的 mcast_ttl 作为多播数据包的 ttl 值
+ *                    如果不开启这个选项，默认使用 struct udp_pcb 中的 ttl 作为多播数据包的 ttl 值
+ * IP_MULTICAST_IF - 表示在发送多播数据时是否使用的绑定网络接口 struct udp_pcb 中的 mcast_ifindex 
+ * IP_MULTICAST_LOOP - 表示发送多播数据包时，需要通过回环接口把向外发送的数据包再接收回来 */
 #define LWIP_MULTICAST_TX_OPTIONS       ((LWIP_IGMP || LWIP_IPV6_MLD) && (LWIP_UDP || LWIP_RAW))
 #endif
 /**
@@ -1199,6 +1207,7 @@
  * LWIP_UDP==1: Turn on UDP.
  */
 #if !defined LWIP_UDP || defined __DOXYGEN__
+/* 表示是否启用当前协议栈的 udp 功能模块 */
 #define LWIP_UDP                        1
 #endif
 
@@ -2072,6 +2081,9 @@
  * SO_REUSE==1: Enable SO_REUSEADDR option.
  */
 #if !defined SO_REUSE || defined __DOXYGEN__
+/* SO_REUSE==1 表示启用 SO_REUSEADDR socket 选项，这个选项表示的是多个协议控制块
+ * 可以共享相同的 IP 地址和本地端口号对（只有 IP 地址和端口号都重叠的情况下才是
+ * 地址复用，如果只是二者其中的一个有重叠，则不是复用）*/
 #define SO_REUSE                        0
 #endif
 
@@ -2081,6 +2093,8 @@
  * WARNING: Adds a memcpy for every packet if passing to more than one pcb!
  */
 #if !defined SO_REUSE_RXTOALL || defined __DOXYGEN__
+/* SO_REUSE_RXTOALL==1 表示如果设置了 SO_REUSEADDR socket 选项，则会把接收到的
+ * 多播数据包或者广播数据包“克隆”并“传输”到每一个地址匹配的协议控制块中 */
 #define SO_REUSE_RXTOALL                0
 #endif
 
@@ -2388,6 +2402,11 @@
  * application buffers to pbufs.
  */
 #if !defined LWIP_CHECKSUM_ON_COPY || defined __DOXYGEN__
+/* LWIP_CHECKSUM_ON_COPY=1 表示在把应用层数据复制到传输层的 pbuf 中时，是否计算应用层
+ * 数据的校验和，如果计算校验和，则把计算后的校验和传给传输层协议接口，这样在传输层协
+ * 议中就不需要重复计算应用数据的校验和了，直接使用即可（不用计算的部分指的应用层数据
+ * 但是在传输层协议中，除了应用层数据，还有传输层协议头，所以我们只需要计算传输层协议
+ * 的校验和，然后累加到应用层数据校验和中，就是整个数据包的校验和了）*/
 #define LWIP_CHECKSUM_ON_COPY           0
 #endif
 /**

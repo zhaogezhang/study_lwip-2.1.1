@@ -53,9 +53,16 @@
 extern "C" {
 #endif
 
+/* 表示当前 udp 数据包不计算校验和 */
 #define UDP_FLAGS_NOCHKSUM       0x01U
+
+/* 表示当前 udp 协议是 udp-lite 协议 */
 #define UDP_FLAGS_UDPLITE        0x02U
+
+/* 表示当前 udp 协议控制块已经和指定的对端设备建立了连接 */
 #define UDP_FLAGS_CONNECTED      0x04U
+
+/* 表示当前通过 udp 多播协议发送的数据包需要回环发送到当前网络接口上 */
 #define UDP_FLAGS_MULTICAST_LOOP 0x08U
 
 struct udp_pcb;
@@ -74,43 +81,69 @@ struct udp_pcb;
  * @param addr the remote IP address from which the packet was received
  * @param port the remote port from which the packet was received
  */
+/* 定义用来处理接收到的合法的 udp 数据包的函数指针类型 */
 typedef void (*udp_recv_fn)(void *arg, struct udp_pcb *pcb, struct pbuf *p,
     const ip_addr_t *addr, u16_t port);
 
 /** the UDP protocol control block */
+/* 定义了当前协议栈使用的 udp 协议控制块结构，包含了一个 udp 连接的所有信息 */
 struct udp_pcb {
-/** Common members of all PCB types */
+  /** Common members of all PCB types */
+  /* 表示当前 udp 连接和 IP 协议层相关的控制参数 */
   IP_PCB;
 
-/* Protocol specific PCB members */
+  /* Protocol specific PCB members */
 
+  /* 协议栈通过单向链表把当前系统内的所有 udp 连接控制块组织起来 */
   struct udp_pcb *next;
 
+  /* 表示当前 udp 协议控制块的标志变量，例如 UDP_FLAGS_CONNECTED */
   u8_t flags;
+  
   /** ports are in host byte order */
+  /* 表示当前 udp 协议控制块的本地端口号和对端端口号信息：
+   * 在接收 udp 数据时 local_port 用来匹配接收到的 udp 数据包的“目的”端口号
+   * remote_port 用来匹配接收到的 udp 数据包的“源”端口号，只有在这两个端口
+   * 号匹配的情况下才会处理接收到的 udp 数据包
+   * 在发送 udp 数据时，local_port 表示当前要发送的udp 数据包的“源”端口号
+   * remote_port 表示当前要发送的 udp 数据包的“目的”端口号 */
   u16_t local_port, remote_port;
 
 #if LWIP_MULTICAST_TX_OPTIONS
+
 #if LWIP_IPV4
   /** outgoing network interface for multicast packets, by IPv4 address (if not 'any') */
+  /* 表示当前 udp 连接在发送多播数据时使用的网络接口的 IPv4 地址，这个地址在 mcast_ifindex 
+   * 无效（mcast_ifindex = NETIF_NO_INDEX）时使用 */
   ip4_addr_t mcast_ip4;
 #endif /* LWIP_IPV4 */
+
   /** outgoing network interface for multicast packets, by interface index (if nonzero) */
+  /* 表示当前 udp 连接在发送多播数据时使用的绑定网络接口发送，NETIF_NO_INDEX 表示没有
+   * 绑定接口，其他值表示绑定的网络接口的索引值 */
   u8_t mcast_ifindex;
+
   /** TTL for outgoing multicast packets */
+  /* 表示当前 udp 连接在发送多播数据时使用的 ttl（Time To Live）值 */
   u8_t mcast_ttl;
+  
 #endif /* LWIP_MULTICAST_TX_OPTIONS */
 
 #if LWIP_UDPLITE
   /** used for UDP_LITE only */
+  /* 表示当前 udp 连接在计算校验和时需要覆盖的数据的字节数，0 表示计算整个数据包的校验和 */
   u16_t chksum_len_rx, chksum_len_tx;
 #endif /* LWIP_UDPLITE */
 
   /** receive callback function */
+  /* 表示在当前 udp 连接接收到的合法 udp 数据包时，通过这个函数指针来处理接收到的 udp 数据包 */
   udp_recv_fn recv;
+
   /** user-supplied argument for the recv callback */
+  /* 表示在调用处理合法 udp 数据包的函数指针时，用户可自定义的函数参数内容 */
   void *recv_arg;
 };
+
 /* udp_pcbs export for external reference (e.g. SNMP agent) */
 extern struct udp_pcb *udp_pcbs;
 

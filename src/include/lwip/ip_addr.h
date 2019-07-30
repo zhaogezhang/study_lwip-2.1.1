@@ -93,18 +93,25 @@ extern const ip_addr_t ip_addr_any_type;
 #define IPADDR6_INIT_HOST(a, b, c, d) { { { { PP_HTONL(a), PP_HTONL(b), PP_HTONL(c), PP_HTONL(d) } IPADDR6_ZONE_INIT } }, IPADDR_TYPE_V6 }
 
 /** @ingroup ipaddr */
-/* 判断 IP 地址“类型”字段相关接口 */
+/* 判断指定的 IP 地址类型是否同时支持 IPv4 和 IPv6  */
 #define IP_IS_ANY_TYPE_VAL(ipaddr)    (IP_GET_TYPE(&ipaddr) == IPADDR_TYPE_ANY)
 /** @ingroup ipaddr */
 #define IPADDR_ANY_TYPE_INIT          { { { { 0ul, 0ul, 0ul, 0ul } IPADDR6_ZONE_INIT } }, IPADDR_TYPE_ANY }
 
 /** @ingroup ip4addr */
+/* 判断指定的 IP 地址是否是 IPv4 类型 */
 #define IP_IS_V4_VAL(ipaddr)          (IP_GET_TYPE(&ipaddr) == IPADDR_TYPE_V4)
+
 /** @ingroup ip6addr */
+/* 判断指定的 IP 地址是否是 IPv6 类型 */
 #define IP_IS_V6_VAL(ipaddr)          (IP_GET_TYPE(&ipaddr) == IPADDR_TYPE_V6)
+
 /** @ingroup ip4addr */
+/* 判断指定的 IP 地址是否是 IPv4 类型 */
 #define IP_IS_V4(ipaddr)              (((ipaddr) == NULL) || IP_IS_V4_VAL(*(ipaddr)))
+
 /** @ingroup ip6addr */
+/* 判断指定的 IP 地址是否是 IPv6 类型 */
 #define IP_IS_V6(ipaddr)              (((ipaddr) != NULL) && IP_IS_V6_VAL(*(ipaddr)))
 
 /* 读写 IP 地址“类型”字段相关接口 */
@@ -114,7 +121,10 @@ extern const ip_addr_t ip_addr_any_type;
 
 #define IP_ADDR_RAW_SIZE(ipaddr)      (IP_GET_TYPE(&ipaddr) == IPADDR_TYPE_V4 ? sizeof(ip4_addr_t) : sizeof(ip6_addr_t))
 
+/* 判断指定的 IP（IPv4 or IPv6）地址类型和指定的协议控制块的 local_ip 地址类型是否匹配 */
 #define IP_ADDR_PCB_VERSION_MATCH_EXACT(pcb, ipaddr) (IP_GET_TYPE(&pcb->local_ip) == IP_GET_TYPE(ipaddr))
+
+/* 判断指定的 IP（IPv4 or IPv6）地址类型和指定的协议控制块的 local_ip 地址类型是否匹配 */
 #define IP_ADDR_PCB_VERSION_MATCH(pcb, ipaddr) (IP_IS_ANY_TYPE_VAL(pcb->local_ip) || IP_ADDR_PCB_VERSION_MATCH_EXACT(pcb, ipaddr))
 
 /** @ingroup ip6addr
@@ -216,10 +226,13 @@ extern const ip_addr_t ip_addr_any_type;
 #define ip_addr_cmp_zoneless(addr1, addr2)    ((IP_GET_TYPE(addr1) != IP_GET_TYPE(addr2)) ? 0 : (IP_IS_V6_VAL(*(addr1)) ? \
   ip6_addr_cmp_zoneless(ip_2_ip6(addr1), ip_2_ip6(addr2)) : \
   ip4_addr_cmp(ip_2_ip4(addr1), ip_2_ip4(addr2))))
+  
 /** @ingroup ipaddr */
+/* 判断指定的 IP（IPv4 or IPv6）地址是否是 ANY（0.0.0.0）地址*/
 #define ip_addr_isany(ipaddr)        (((ipaddr) == NULL) ? 1 : ((IP_IS_V6(ipaddr)) ? \
   ip6_addr_isany(ip_2_ip6(ipaddr)) : \
   ip4_addr_isany(ip_2_ip4(ipaddr))))
+
 /** @ingroup ipaddr */
 #define ip_addr_isany_val(ipaddr)        ((IP_IS_V6_VAL(ipaddr)) ? \
   ip6_addr_isany_val(*ip_2_ip6(&(ipaddr))) : \
@@ -389,23 +402,29 @@ extern const ip_addr_t ip_addr_broadcast;
  * Use @ref IP4_ADDR_ANY or @ref IP6_ADDR_ANY when the IP
  * type matters.
  */
+/** 表示任何网络 IP 地址：0.0.0.0 */
 #define IP_ADDR_ANY         IP4_ADDR_ANY
 /**
  * @ingroup ip4addr
  * Can be used as a fixed/const ip_addr_t
  * for the IPv4 wildcard and the broadcast address
  */
+/** 表示任何网络 IP 地址：0.0.0.0 */
 #define IP4_ADDR_ANY        (&ip_addr_any)
 /**
  * @ingroup ip4addr
  * Can be used as a fixed/const ip4_addr_t
  * for the wildcard and the broadcast address
  */
+/** 表示任何网络 IP 地址：0.0.0.0 */
 #define IP4_ADDR_ANY4       (ip_2_ip4(&ip_addr_any))
 
 /** @ingroup ip4addr */
+/** 表示广播 IP 地址：255.255.255.255 */
 #define IP_ADDR_BROADCAST   (&ip_addr_broadcast)
+
 /** @ingroup ip4addr */
+/** 表示广播 IP 地址：255.255.255.255 */
 #define IP4_ADDR_BROADCAST  (ip_2_ip4(&ip_addr_broadcast))
 
 #endif /* LWIP_IPV4*/

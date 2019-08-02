@@ -1249,6 +1249,7 @@
  * LWIP_TCP==1: Turn on TCP.
  */
 #if !defined LWIP_TCP || defined __DOXYGEN__
+/* 表示当前协议栈是否启用 tcp 功能模块 */
 #define LWIP_TCP                        1
 #endif
 
@@ -1256,6 +1257,7 @@
  * TCP_TTL: Default Time-To-Live value.
  */
 #if !defined TCP_TTL || defined __DOXYGEN__
+/* 当前协议栈 tcp 数据包默认使用的 ttl 值 */
 #define TCP_TTL                         IP_DEFAULT_TTL
 #endif
 
@@ -1266,6 +1268,8 @@
  * with scaling applied. Maximum window value in the TCP header
  * will be TCP_WND >> TCP_RCV_SCALE
  */
+/* 表示当前协议栈 tcp 窗口大小，需要注意的是，如果启用了 TCP_RCV_SCALE 选项
+ * 那么扩展之后的窗口打下，所以 tcp 协议头中的 Window 字段值 = TCP_WND >> TCP_RCV_SCALE */
 #if !defined TCP_WND || defined __DOXYGEN__
 #define TCP_WND                         (4 * TCP_MSS)
 #endif
@@ -1297,6 +1301,7 @@
  * LWIP_TCP_SACK_OUT==1: TCP will support sending selective acknowledgements (SACKs).
  */
 #if !defined LWIP_TCP_SACK_OUT || defined __DOXYGEN__
+/* LWIP_TCP_SACK_OUT=1 表示当前协议栈在发送 tcp 数据包时支持填充 sack 选项 */
 #define LWIP_TCP_SACK_OUT               0
 #endif
 
@@ -1311,6 +1316,9 @@
  * The amount of memory used to store SACK ranges is LWIP_TCP_MAX_SACK_NUM * 8 bytes for each TCP PCB.
  */
 #if !defined LWIP_TCP_MAX_SACK_NUM || defined __DOXYGEN__
+/* 表示当前协议栈在发送 tcp 数据包的时候允许在 tcp 协议头选项字段中最多填充的 sack 对个数
+ * 因为当前协议栈最多支持发送 4 个 sack 对数据，所以这个宏定义的值如果设置为大于 4 的值，则
+ * 没有实际意义 */
 #define LWIP_TCP_MAX_SACK_NUM           4
 #endif
 
@@ -1345,6 +1353,7 @@
  * To achieve good performance, this should be at least 2 * TCP_MSS.
  */
 #if !defined TCP_SND_BUF || defined __DOXYGEN__
+/* 表示当前协议栈 tcp 模块发送数据缓冲区大小 */
 #define TCP_SND_BUF                     (2 * TCP_MSS)
 #endif
 
@@ -1353,6 +1362,7 @@
  * as much as (2 * TCP_SND_BUF/TCP_MSS) for things to work.
  */
 #if !defined TCP_SND_QUEUELEN || defined __DOXYGEN__
+/* 表示当前协议栈 tcp 模块发送队列最大可入队数据包个数 */
 #define TCP_SND_QUEUELEN                ((4 * (TCP_SND_BUF) + (TCP_MSS - 1))/(TCP_MSS))
 #endif
 
@@ -1424,6 +1434,8 @@
  * TCP_LISTEN_BACKLOG: Enable the backlog option for tcp listen pcb.
  */
 #if !defined TCP_LISTEN_BACKLOG || defined __DOXYGEN__
+/* 表示当前协议栈是否为 tcp 监听函数启用 backlog 选项，其中 backlog 选项功能主要是
+ * 用来限制 tcp 模块同时建立的连接请求数 */
 #define TCP_LISTEN_BACKLOG              0
 #endif
 
@@ -1451,6 +1463,7 @@
  * TCP_MSS/4: Try to create 4 fragments or less per TCP packet.
  */
 #if !defined TCP_OVERSIZE || defined __DOXYGEN__
+/* 表示当前系统允许在发送的 tcp 数据包有效负载数据后额外申请的最大空间大小 */
 #define TCP_OVERSIZE                    TCP_MSS
 #endif
 
@@ -1461,6 +1474,8 @@
  * received in the initial SYN packet from a remote host.
  */
 #if !defined LWIP_TCP_TIMESTAMPS || defined __DOXYGEN__
+/* LWIP_TCP_TIMESTAMPS=1 表示当前协议栈 tcp 协议支持时间戳选项，如果一个完整数据包
+ * 被分解成多个分片数据包发送，则每个分片数据包中都包含同样的时间戳选项数据 */
 #define LWIP_TCP_TIMESTAMPS             0
 #endif
 
@@ -1500,7 +1515,10 @@
  * send window while having a small receive window only.
  */
 #if !defined LWIP_WND_SCALE || defined __DOXYGEN__
+/* LWIP_WND_SCALE=1 表示支持窗口扩大因子选项 */
 #define LWIP_WND_SCALE                  0
+
+/* 表示我们期望的接收窗口扩大因子 */
 #define TCP_RCV_SCALE                   0
 #endif
 
@@ -2873,6 +2891,7 @@
  * state or any pcb lists) from this callback!
  */
 #ifdef __DOXYGEN__
+/* 用户实现的自定义接口函数，用来在 tcp 协议头中添加用户自定义的“选项”字段内存空间 */
 #define LWIP_HOOK_TCP_OUT_TCPOPT_LENGTH(pcb, internal_len)
 #endif
 
@@ -2897,6 +2916,7 @@
  * state or any pcb lists) from this callback!
  */
 #ifdef __DOXYGEN__
+/* 用户可以通过实现这个函数指针，在 tcp 协议头中添加自定义选项数据 */
 #define LWIP_HOOK_TCP_OUT_ADD_TCPOPTS(p, hdr, pcb, opts)
 #endif
 

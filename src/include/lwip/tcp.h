@@ -156,6 +156,7 @@ typedef err_t (*tcp_connected_fn)(void *arg, struct tcp_pcb *tpcb, err_t err);
 #if LWIP_TCP_SACK_OUT
 /** SACK ranges to include in ACK packets.
  * SACK entry is invalid if left==right. */
+/* 定义了 tcp 数据包协议头中的 sack 选项对数据结构 */
 struct tcp_sack_range {
   /** Left edge of the SACK: the first acknowledged sequence number. */
   u32_t left;
@@ -232,41 +233,62 @@ struct tcp_pcb_listen {
 #endif /* LWIP_CALLBACK_API */
 
 #if TCP_LISTEN_BACKLOG
+  /* 表示当前协议栈的 tcp 模块支持的同时建立的连接请求数的最大值 */
   u8_t backlog;
+
+  /* 表示当前 tcp 模块已经建立的连接请求数 */
   u8_t accepts_pending;
 #endif /* TCP_LISTEN_BACKLOG */
 };
 
 
 /** the TCP protocol control block */
+/* 定义当前协议栈的 tcp 协议控制块结构 */
 struct tcp_pcb {
-/** common PCB members */
+  /** common PCB members */
   IP_PCB;
-/** protocol specific PCB members */
+
+  /** protocol specific PCB members */
   TCP_PCB_COMMON(struct tcp_pcb);
 
   /* ports are in host byte order */
   u16_t remote_port;
 
+  /* 表示当前 tcp 协议控制块的标志变量，例如 TF_NODELAY */
   tcpflags_t flags;
+  
 #define TF_ACK_DELAY   0x01U   /* Delayed ACK. */
 #define TF_ACK_NOW     0x02U   /* Immediate ACK. */
 #define TF_INFR        0x04U   /* In fast recovery. */
 #define TF_CLOSEPEND   0x08U   /* If this is set, tcp_close failed to enqueue the FIN (retried in tcp_tmr) */
 #define TF_RXCLOSED    0x10U   /* rx closed by tcp_shutdown */
 #define TF_FIN         0x20U   /* Connection was closed locally (FIN segment enqueued). */
+
+/* 表示关闭 Nagle 算法逻辑
+ * Nagle algorithm 的基本功能是为了减少大量小包的发送，实际上就是基于小包的停-等协议
+ * 在等待已经发出的包被确认之前，发送端利用这段时间可以积累应用下来的数据，使其大小趋向于增加 */
 #define TF_NODELAY     0x40U   /* Disable Nagle algorithm */
+
+/* 表示在启用 Nagle 算法的时候，发生了缓冲区相关错误，需要把当前缓存的待发送数据尽快发送出去 */
 #define TF_NAGLEMEMERR 0x80U   /* nagle enabled, memerr, try to output to prevent delayed ACK to happen */
+
 #if LWIP_WND_SCALE
 #define TF_WND_SCALE   0x0100U /* Window Scale option enabled */
 #endif
+
 #if TCP_LISTEN_BACKLOG
+/* 如果当前协议栈为 tcp 监听函数启用 backlog 选项，那么会通过统计 tcp 监听者的 backlog 计数值限制
+ * tcp 模块同时建立的连接请求数，如果指定的 tcp 协议控制块已经设置了 TF_BACKLOGPEND 标志，表示这
+ * 个协议控制块的 tcp 连接已经统计进了 tcp 监听者的 backlog 计数值中 */
 #define TF_BACKLOGPEND 0x0200U /* If this is set, a connection pcb has increased the backlog on its listener */
 #endif
+
 #if LWIP_TCP_TIMESTAMPS
 #define TF_TIMESTAMP   0x0400U   /* Timestamp option enabled */
 #endif
+
 #define TF_RTO         0x0800U /* RTO timer has fired, in-flight data moved to unsent and being retransmitted */
+
 #if LWIP_TCP_SACK_OUT
 #define TF_SACK        0x1000U /* Selective ACKs enabled */
 #endif
@@ -287,6 +309,8 @@ struct tcp_pcb {
 
 #if LWIP_TCP_SACK_OUT
   /* SACK ranges to include in ACK packets (entry is invalid if left==right) */
+  /* 记录当前 tcp 协议控制块需要发送的 sack 数据对，这个选项只有在接收的数据块不连续的情景下使用
+   * 用来通知数据发送端，已经接收到了哪些数据块，这样发送端就不必重新发送这些数据块了 */
   struct tcp_sack_range rcv_sacks[LWIP_TCP_MAX_SACK_NUM];
 #define LWIP_TCP_SACK_VALID(pcb, idx) ((pcb)->rcv_sacks[idx].left != (pcb)->rcv_sacks[idx].right)
 #endif /* LWIP_TCP_SACK_OUT */
@@ -319,24 +343,38 @@ struct tcp_pcb {
   u32_t snd_nxt;   /* next new seqno to be sent */
   u32_t snd_wl1, snd_wl2; /* Sequence and acknowledgement numbers of last
                              window update. */
+
+  /* 追踪记录当前协议控制块下一次构建发送分片数据包时使用的字节号 */							 
   u32_t snd_lbb;       /* Sequence number of next byte to be buffered. */
+							 
   tcpwnd_size_t snd_wnd;   /* sender window */
+
+  /* 表示由对端设备宣称的最大发送窗口，在我们发送数据的时候使用 */
   tcpwnd_size_t snd_wnd_max; /* the maximum sender window announced by the remote host */
 
+  /* 表示当前 tcp 协议控制块的发送数据缓冲区大小，随着收发数据动态变化 */
   tcpwnd_size_t snd_buf;   /* Available buffer space for sending (in bytes). */
+  
 #define TCP_SNDQUEUELEN_OVERFLOW (0xffffU-3)
+
+  /* 表示当前 tcp 协议控制块发送队列中包含的 pbuf 个数，包含了未发送的数据包和发送但是未应答的数据包之和 */
   u16_t snd_queuelen; /* Number of pbufs currently in the send buffer. */
 
 #if TCP_OVERSIZE
   /* Extra bytes available at the end of the last pbuf in unsent. */
+  /* 表示在未发送数据包队列最后一个 tcp 分片数据包成员中空闲的、可存储新数据的内存空间大小 */
   u16_t unsent_oversize;
 #endif /* TCP_OVERSIZE */
 
   tcpwnd_size_t bytes_acked;
 
   /* These are ordered by sequence number: */
+  /* 通过单向链表把所有未发送的数据包按照队列的方式组织起来，在队列中的数据包，是按照字节号升序方式排列的 */
   struct tcp_seg *unsent;   /* Unsent (queued) segments. */
+  
+  /* 通过单向链表把所有已经发送但是还未应答的数据包按照队列的方式组织起来，在队列中的数据包，是按照字节号升序方式排列的 */
   struct tcp_seg *unacked;  /* Sent but unacknowledged segments. */
+  
 #if TCP_QUEUE_OOSEQ
   struct tcp_seg *ooseq;    /* Received out of sequence segments. */
 #endif /* TCP_QUEUE_OOSEQ */
@@ -344,6 +382,7 @@ struct tcp_pcb {
   struct pbuf *refused_data; /* Data previously received but not yet taken by upper layer */
 
 #if LWIP_CALLBACK_API || TCP_LISTEN_BACKLOG
+  /* 表示当前 tcp 协议控制块所属 tcp 监听者（在服务端监听并处理其他设备的连接请求）*/
   struct tcp_pcb_listen* listener;
 #endif /* LWIP_CALLBACK_API || TCP_LISTEN_BACKLOG */
 
@@ -362,11 +401,14 @@ struct tcp_pcb {
 
 #if LWIP_TCP_TIMESTAMPS
   u32_t ts_lastacksent;
+
+  /* 表示最近一次对端设备在 tcp 协议头中发送的时间戳选项值 */
   u32_t ts_recent;
 #endif /* LWIP_TCP_TIMESTAMPS */
 
   /* idle time before KEEPALIVE is sent */
   u32_t keep_idle;
+
 #if LWIP_TCP_KEEPALIVE
   u32_t keep_intvl;
   u32_t keep_cnt;
@@ -420,8 +462,13 @@ void             tcp_accept  (struct tcp_pcb *pcb, tcp_accept_fn accept);
 #endif /* LWIP_CALLBACK_API */
 void             tcp_poll    (struct tcp_pcb *pcb, tcp_poll_fn poll, u8_t interval);
 
+/* 设置指定 tcp 协议控制块的指定 tcp flags 标志位 */
 #define          tcp_set_flags(pcb, set_flags)     do { (pcb)->flags = (tcpflags_t)((pcb)->flags |  (set_flags)); } while(0)
+
+/* 清除指定 tcp 协议控制块的指定 tcp flags 标志位 */
 #define          tcp_clear_flags(pcb, clr_flags)   do { (pcb)->flags = (tcpflags_t)((pcb)->flags & (tcpflags_t)(~(clr_flags) & TCP_ALLFLAGS)); } while(0)
+
+/* 判断指定 tcp 协议控制块的指定 tcp flags 标志位是否置位 */
 #define          tcp_is_flag_set(pcb, flag)        (((pcb)->flags & (flag)) != 0)
 
 #if LWIP_TCP_TIMESTAMPS

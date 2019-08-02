@@ -96,7 +96,189 @@
  * Author: Adam Dunkels <adam@sics.se>
  *
  */
-
+/* TCP 数据包协议格式，详细内容见链接：https://tools.ietf.org/html/rfc793
+ *
+ *    0                   1                   2                   3
+ *    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+ *   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *   |          Source Port          |       Destination Port        |
+ *   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *   |                        Sequence Number                        |
+ *   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *   |                    Acknowledgment Number                      |
+ *   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *   |  Data |           |U|A|P|R|S|F|                               |
+ *   | Offset| Reserved  |R|C|S|S|Y|I|            Window             |
+ *   |       |           |G|K|H|T|N|N|                               |
+ *   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *   |           Checksum            |         Urgent Pointer        |
+ *   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *   |                    Options                    |    Padding    |
+ *   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *   |                           Payload                             |
+ *   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *
+ *   源端口（Source Port）：发送这个数据包进程的端口号
+ *   目的端口（Destination Port）：接收这个数据包进程的端口号
+ *   字节号（Sequence Number）：当前数据包的第一个负载字节数据的字节号（除了在 SYN 数据包中），在 SYN 数据包中
+ *                              当前数据包的第一个负载字节数据表示的是初始字节号
+ *   应答字节号（Acknowledgment Number）：在 ACK 控制位被置位的时候有效，表示接收端下一次希望接收的数据包的字节号
+ *                                        在建立连接之后，这个位一直有效
+ *   负载数据偏移量（Data Offset）：表示当前数据包负载数据从包头开始的偏移量（即协议头长度），单位是 4 个 8 位字节
+ *   保留位（Reserved）：必须设置为 0
+ *   紧急数据控制位（URG）：表示紧急指针字段（Urgent Pointer）数据有效且当前数据包负载数据起始位置处携带的是“紧急”数据
+ *   应答字节号控制位（ACK）：表示应答字节号字段（Acknowledgment Number）数据有效
+ *   推送控制位（PSH）：在发送端表示当前数据包需要尽快发送出去，在接收端表示当前数据包需要尽快推送给应用层处理
+ *   复位连接控制位（RST）：复位当前的 tcp 连接（拒绝 tcp 连接请求、断开已经连接成功的 tcp 连接），无需执行复杂的四次挥手
+ *   同步字节号控制位（SYN）：表示当前数据包是 SYN 数据包，数据包的第一个负载字节数据表示的是初始字节号
+ *   结束控制位（FIN）：表示要断开当前已经建立的 tcp 连接（双向连接中的一个方向）
+ *   窗口大小（Window）：表示在发送这个数据包的时候，发送这个数据包的设备当前窗口可以接收的数据字节数
+ *   校验和（Checksum）：表示当前数据包的校验和（协议头和负载数据）
+ *   紧急数据指针（Urgent Pointer）：在紧急数据控制位被置位的时候有效，表示当前数据包负载数据中跟在“紧急”数据后的“非紧急”
+ *                                   数据的第一个字节数据和当前数据包协议头中的“字节号”之间的偏移量
+ *   选项字段（Options）：在 tcp 协议头中可附加的“选项”数据，数据格式为：1 字节选项类型 + 1 字节选项总长度 + 选项数据
+ *   对齐填充（Padding）：因为 tcp 协议头中的选项数据需要 4 字节对齐，在数据不对齐时，通过追加填充 0 使其对齐
+ *   负载数据（Payload）：当前数据包的负载数据
+ *
+ *
+ * 常用的 tcp 协议头选项数据：
+ *   
+ *   选项列表结束标志：在 tcp 协议头所有选项后使用，表示选项列表结束边界（这个选项不是强制要求设置的），格式如下：
+ *                     详情见链接：https://tools.ietf.org/html/rfc793
+ *   +--------+
+ *   | Kind=0 |
+ *   +--------+
+ *
+ *   NOP 选项：表示没有实际意义的选项数据，用来在不同选项之间填充空间使每个选项起始地址能够按照“字”对齐，格式如下：
+ *                     详情见链接：https://tools.ietf.org/html/rfc793
+ *   +--------+
+ *   | Kind=1 |
+ *   +--------+
+ *
+ *   最大报文长度选项：只可以在 SYN 数据包中使用，表示发送这个数据包的设备支持的最大接收数据包长度，格式如下：
+ *                     详情见链接：https://tools.ietf.org/html/rfc793
+ *   +--------+--------+---------+--------+
+ *   | Kind=2 |Length=4|   max seg size   |
+ *   +--------+--------+---------+--------+
+ *
+ *   时间戳选项：可以用来计算数据包往返时延，格式如下：
+ *               详情见链接：https://tools.ietf.org/html/rfc1323
+ *   +-------+-------+---------------------+---------------------+
+ *   |Kind=8 |	10	 |	 TS Value (TSval)  |TS Echo Reply (TSecr)|
+ *   +-------+-------+---------------------+---------------------+
+ *  	 1		 1				4					  4
+ *
+ *   选择确认允许选项：表示当前设备支持 sack 功能，仅在 SYN 数据包中使用，格式如下：
+ *                     详情见链接：https://tools.ietf.org/html/draft-sabatini-tcp-sack-01
+ *   +--------+--------+
+ *   | Kind=4 |Length=2|
+ *   +--------+--------+
+ *
+ *   选择确认选项：表示当前接收端已经接收到了哪些字节号不连续的数据包，格式如下：
+ *                 详情见链接：https://tools.ietf.org/html/draft-floyd-sack-00
+ *  				   +--------+--------+
+ *  				   | Kind=5 | Length |
+ *   +--------+--------+--------+--------+
+ *   |		Left Edge of 1st Block		 |
+ *   +--------+--------+--------+--------+
+ *   |		Right Edge of 1st Block 	 |
+ *   +--------+--------+--------+--------+
+ *   |									 |
+ *   /			  . . . 				 /
+ *   |									 |
+ *   +--------+--------+--------+--------+
+ *   |		Left Edge of nth Block		 |
+ *   +--------+--------+--------+--------+
+ *   |		Right Edge of nth Block 	 |
+ *   +--------+--------+--------+--------+
+ *
+ *   窗口扩大因子选项：因为 tcp 协议头中的窗口大小只有 16 位，所以如果想要设置超过 65535 的窗口，就需要用的
+ *                     窗口扩大因子选项，此时的窗口大小 = Window * (2 ^ shift.cnt)
+ *                     详情见链接：https://tools.ietf.org/html/rfc1323
+ *   +---------+---------+---------+
+ *   | Kind=3  |Length=3 |shift.cnt|
+ *   +---------+---------+---------+
+ *
+ *
+ * TCP 连接状态变化图：
+ *
+ *                                +---------+ ---------\      active OPEN
+ *                                |  CLOSED |            \    -----------
+ *                                +---------+<---------\   \   create TCB
+ *                                  |     ^              \   \  snd SYN
+ *                     passive OPEN |     |   CLOSE        \   \
+ *                     ------------ |     | ----------       \   \
+ *                      create TCB  |     | delete TCB         \   \
+ *                                  V     |                      \   \
+ *                                +---------+            CLOSE    |    \
+ *                                |  LISTEN |          ---------- |     |
+ *                                +---------+          delete TCB |     |
+ *                     rcv SYN      |     |     SEND              |     |
+ *                    -----------   |     |    -------            |     V
+ *   +---------+      snd SYN,ACK  /       \   snd SYN          +---------+
+ *   |         |<-----------------           ------------------>|         |
+ *   |   SYN   |                    rcv SYN                     |   SYN   |
+ *   |   RCVD  |<-----------------------------------------------|   SENT  |
+ *   |         |                    snd ACK                     |         |
+ *   |         |------------------           -------------------|         |
+ *   +---------+   rcv ACK of SYN  \       /  rcv SYN,ACK       +---------+
+ *     |           --------------   |     |   -----------
+ *     |                  x         |     |     snd ACK
+ *     |                            V     V
+ *     |  CLOSE                   +---------+
+ *     | -------                  |  ESTAB  |
+ *     | snd FIN                  +---------+
+ *     |                   CLOSE    |     |    rcv FIN
+ *     V                  -------   |     |    -------
+ *   +---------+          snd FIN  /       \   snd ACK          +---------+
+ *   |  FIN    |<-----------------           ------------------>|  CLOSE  |
+ *   | WAIT-1  |------------------                              |   WAIT  |
+ *   +---------+          rcv FIN  \                            +---------+
+ *     | rcv ACK of FIN   -------   |                            CLOSE  |
+ *     | --------------   snd ACK   |                           ------- |
+ *     V        x                   V                           snd FIN V
+ *   +---------+                  +---------+                   +---------+
+ *   |FINWAIT-2|                  | CLOSING |                   | LAST-ACK|
+ *   +---------+                  +---------+                   +---------+
+ *     |                rcv ACK of FIN |                 rcv ACK of FIN |
+ *     |  rcv FIN       -------------- |    Timeout=2MSL -------------- |
+ *     |  -------              x       V    ------------        x       V
+ *      \ snd ACK                 +---------+delete TCB         +---------+
+ *       ------------------------>|TIME WAIT|------------------>| CLOSED  |
+ *                                +---------+                   +---------+
+ *
+ *   LISTEN - 表示服务端正在等待其他客户端设备发送连接请求
+ *   
+ *   SYN-SENT - 表示客户端发送一个连接请求后，正在等待服务端发送与其匹配的连接请求
+ *   
+ *   SYN-RECEIVED - 表示服务端在接收到客户端发送的连接请求并发送了一个与其匹配的连接请求后
+ *                  正在等待客户端的连接请求确认消息
+ *
+ *   ESTABLISHED - 表示服务端和客户端在经过三次握手后，成功建立了 tcp 连接，可以收发数据了
+ *   
+ *   FIN-WAIT-1 - 表示“本地”客户端/服务端“先”发送一个连接终止请求后，正在等待对端设备发送连接终止请求
+ *                应答消息，或者是对端设备发送的连接终止请求
+ *   
+ *   FIN-WAIT-2 - 表示“本地”客户端/服务端“先”发送的连接终止请求已经接收到对应的连接终止请求应答消息
+ *                正在等待“对端”设备发送接终止请求
+ *   
+ *   CLOSE-WAIT - 表示“对端”客户端/服务端“先”发送的连接终止请求已经接收到对应的连接终止请求应答消息
+ *                正在等待“本地”设备发送接终止请求
+ *   
+ *   CLOSING - 表示“对端”客户端/服务端发送的连接终止请求已经接收到对应的连接终止请求应答消息，但是
+ *             “本地”客户端/服务端发送的连接终止请求还没接收到对应的连接终止请求应答消息，现在正在
+ *             等待“对端”客户端/服务端发送对应的连接终止请求应答消息（第一个连接终止请求由“本地”设备发起）
+ *   
+ *   LAST-ACK - 表示“对端”客户端/服务端发送的连接终止请求已经接收到对应的连接终止请求应答消息，但是
+ *             “本地”客户端/服务端发送的连接终止请求还没接收到对应的连接终止请求应答消息，现在正在
+ *             等待“对端”客户端/服务端发送对应的连接终止请求应答消息（第一个连接终止请求由“对端”设备发起）
+ *
+ *   TIME-WAIT - 表示“本地”客户端/服务端发送完四次挥手中的最后一个连接终止请求应答消息后，延时期间状态
+ *               延时的目的主要是为了保证对端设备可以接收到自己发送的连接终止请求应答消息
+ *   
+ *   CLOSED - 表示服务端和客户端在经过四次挥手后，成功关闭了 tcp 连接
+ *
+ */
 #include "lwip/opt.h"
 
 #if LWIP_TCP /* don't build if not configured for use in lwipopts.h */
@@ -114,15 +296,18 @@
 
 #include <string.h>
 
+/* 添加用户自定义的钩子函数头文件 */
 #ifdef LWIP_HOOK_FILENAME
 #include LWIP_HOOK_FILENAME
 #endif
 
+/* 定义当前系统 tcp 模块使用的端口号范围 */
 #ifndef TCP_LOCAL_PORT_RANGE_START
 /* From http://www.iana.org/assignments/port-numbers:
    "The Dynamic and/or Private Ports are those from 49152 through 65535" */
 #define TCP_LOCAL_PORT_RANGE_START        0xc000
 #define TCP_LOCAL_PORT_RANGE_END          0xffff
+/* 确保指定的端口号在合法范围内 */
 #define TCP_ENSURE_LOCAL_PORT_RANGE(port) ((u16_t)(((port) & (u16_t)~TCP_LOCAL_PORT_RANGE_START) + TCP_LOCAL_PORT_RANGE_START))
 #endif
 
@@ -135,12 +320,14 @@
 #endif /* LWIP_TCP_KEEPALIVE */
 
 /* As initial send MSS, we use TCP_MSS but limit it to 536. */
+/* 当前协议栈的 tcp 连接默认使用的 MSS（Maximum segment size）*/
 #if TCP_MSS > 536
 #define INITIAL_MSS 536
 #else
 #define INITIAL_MSS TCP_MSS
 #endif
 
+/* 当前协议栈的 tcp 连接状态的字符串描述 */
 static const char *const tcp_state_str[] = {
   "CLOSED",
   "LISTEN",
@@ -160,24 +347,34 @@ static u16_t tcp_port = TCP_LOCAL_PORT_RANGE_START;
 
 /* Incremented every coarse grained timer shot (typically every 500 ms). */
 u32_t tcp_ticks;
+
 static const u8_t tcp_backoff[13] =
 { 1, 2, 3, 4, 5, 6, 7, 7, 7, 7, 7, 7, 7};
+
 /* Times per slowtmr hits */
 static const u8_t tcp_persist_backoff[7] = { 3, 6, 12, 24, 48, 96, 120 };
 
 /* The TCP PCB lists. */
 
 /** List of all TCP PCBs bound but not yet (connected || listening) */
+/* 用来链接当前系统内所有已经绑定“本地”设备、但还没建立连接或者还没进入监听状态的 tcp 协议控制块 */
 struct tcp_pcb *tcp_bound_pcbs;
+
 /** List of all TCP PCBs in LISTEN state */
+/* 用来链接当前系统内所有正处于监听状态的 tcp 协议控制块 */
 union tcp_listen_pcbs_t tcp_listen_pcbs;
+
 /** List of all TCP PCBs that are in a state in which
- * they accept or send data. */
+ * they accept or send data. */ 
+/* 用来链接当前系统内所有正处于发送数据或者接收数据状态的 tcp 协议控制块 */
 struct tcp_pcb *tcp_active_pcbs;
+
 /** List of all TCP PCBs in TIME-WAIT state */
+/* 用来链接当前系统内所有正处于 TIME-WAIT 状态的 tcp 协议控制块 */
 struct tcp_pcb *tcp_tw_pcbs;
 
 /** An array with all (non-temporary) PCB lists, mainly used for smaller code size */
+/* 表示当前系统内处于不同状态的 tcp 协议控制块链表的链表头指针 */
 struct tcp_pcb **const tcp_pcb_lists[] = {&tcp_listen_pcbs.pcbs, &tcp_bound_pcbs,
          &tcp_active_pcbs, &tcp_tw_pcbs
 };
@@ -186,6 +383,7 @@ u8_t tcp_active_pcbs_changed;
 
 /** Timer counter to handle calling slow-timer from tcp_tmr() */
 static u8_t tcp_timer;
+
 static u8_t tcp_timer_ctr;
 static u16_t tcp_new_port(void);
 
@@ -197,6 +395,14 @@ static void tcp_ext_arg_invoke_callbacks_destroyed(struct tcp_pcb_ext_args *ext_
 /**
  * Initialize this module.
  */
+/*********************************************************************************************************
+** 函数名称: tcp_init
+** 功能描述: 初始化当前协议栈的 tcp 功能模块（初始化起始端口号的值）
+** 输	 入: 
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 tcp_init(void)
 {
@@ -206,36 +412,66 @@ tcp_init(void)
 }
 
 /** Free a tcp pcb */
+/*********************************************************************************************************
+** 函数名称: tcp_free
+** 功能描述: 释放指定的 MEMP_TCP_PCB 类型的 tcp 协议控制块结构
+** 输	 入: pcb - 需要释放的 tcp 协议控制块
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 tcp_free(struct tcp_pcb *pcb)
 {
   LWIP_ASSERT("tcp_free: LISTEN", pcb->state != LISTEN);
+  
 #if LWIP_TCP_PCB_NUM_EXT_ARGS
   tcp_ext_arg_invoke_callbacks_destroyed(pcb->ext_args);
 #endif
+
   memp_free(MEMP_TCP_PCB, pcb);
 }
 
 /** Free a tcp listen pcb */
+/*********************************************************************************************************
+** 函数名称: tcp_free_listen
+** 功能描述: 释放指定的 MEMP_TCP_PCB_LISTEN 类型的 tcp 协议控制块结构
+** 输	 入: pcb - 需要释放的 tcp 协议控制块
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void
 tcp_free_listen(struct tcp_pcb *pcb)
 {
   LWIP_ASSERT("tcp_free_listen: !LISTEN", pcb->state != LISTEN);
+  
 #if LWIP_TCP_PCB_NUM_EXT_ARGS
   tcp_ext_arg_invoke_callbacks_destroyed(pcb->ext_args);
 #endif
+
   memp_free(MEMP_TCP_PCB_LISTEN, pcb);
 }
 
 /**
  * Called periodically to dispatch TCP timers.
- */
+ */ 
+/*********************************************************************************************************
+** 函数名称: tcp_tmr
+** 功能描述: 当前协议栈的基准软件定时器超时函数
+** 输	 入: 
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 tcp_tmr(void)
 {
   /* Call tcp_fasttmr() every 250 ms */
+  /* 调用 tcp 模块的快速软件定时器 */
   tcp_fasttmr();
 
+  /* 调用 tcp 模块的慢速软件定时器 */
   if (++tcp_timer & 1) {
     /* Call tcp_slowtmr() every 500 ms, i.e., every other timer
        tcp_tmr() is called. */
@@ -246,7 +482,16 @@ tcp_tmr(void)
 #if LWIP_CALLBACK_API || TCP_LISTEN_BACKLOG
 /** Called when a listen pcb is closed. Iterates one pcb list and removes the
  * closed listener pcb from pcb->listener if matching.
- */
+ */ 
+/*********************************************************************************************************
+** 函数名称: tcp_remove_listener
+** 功能描述: 遍历指定的 tcp 协议控制块链表并从中清除所有和指定的、已关闭的 tcp “监听”协议控制块的信息
+** 输	 入: list - 要遍历的 tcp 协议控制块链
+**         : lpcb - 要清除的处于“监听”状态的 tcp 协议控制块
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void
 tcp_remove_listener(struct tcp_pcb *list, struct tcp_pcb_listen *lpcb)
 {
@@ -265,6 +510,14 @@ tcp_remove_listener(struct tcp_pcb *list, struct tcp_pcb_listen *lpcb)
 /** Called when a listen pcb is closed. Iterates all pcb lists and removes the
  * closed listener pcb from pcb->listener if matching.
  */
+/*********************************************************************************************************
+** 函数名称: tcp_remove_listener
+** 功能描述: 关闭指定的处于“监听”状态的 tcp 协议控制块，清除系统内所有和这个 tcp 协议控制块相关的信息
+** 输	 入: pcb - 需要关闭的处于“监听”状态的 tcp 协议控制块
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void
 tcp_listen_closed(struct tcp_pcb *pcb)
 {
@@ -272,10 +525,13 @@ tcp_listen_closed(struct tcp_pcb *pcb)
   size_t i;
   LWIP_ASSERT("pcb != NULL", pcb != NULL);
   LWIP_ASSERT("pcb->state == LISTEN", pcb->state == LISTEN);
+
+  /* 清除系统内所有和这个 tcp 协议控制块相关的信息 */
   for (i = 1; i < LWIP_ARRAYSIZE(tcp_pcb_lists); i++) {
     tcp_remove_listener(*tcp_pcb_lists[i], (struct tcp_pcb_listen *)pcb);
   }
 #endif
+
   LWIP_UNUSED_ARG(pcb);
 }
 
@@ -290,11 +546,25 @@ tcp_listen_closed(struct tcp_pcb *pcb)
  *
  * @param pcb the connection pcb which is not fully accepted yet
  */
+/*********************************************************************************************************
+** 函数名称: tcp_backlog_delayed
+** 功能描述: 增加指定的 tcp 协议控制块所属监听者的 backlog 计数值，执行逻辑如下：
+**         : 判断指定的 tcp 协议控制块是否设置了 TF_BACKLOGPEND 标志，如果没设置，表示这个 tcp 协议
+**         : 控制块代表的 tcp 连接还没统计到其所属监听者的 backlog 计数值中，所以将其统计进去
+** 注     释: 如果开启了 tcp 模块的 TCP_LISTEN_BACKLOG 选项，表示会通过追踪 tcp 监听者的 backlog 计数值
+**         : 来限制 tcp 模块同时建立的连接请求数
+** 输	 入: pcb - 建立连接的 tcp 协议控制块
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 tcp_backlog_delayed(struct tcp_pcb *pcb)
 {
   LWIP_ASSERT("pcb != NULL", pcb != NULL);
   LWIP_ASSERT_CORE_LOCKED();
+
+  /* 如果指定的 tcp 协议控制块还没统计到其所属监听者的 backlog 计数值中，则统计进去 */
   if ((pcb->flags & TF_BACKLOGPEND) == 0) {
     if (pcb->listener != NULL) {
       pcb->listener->accepts_pending++;
@@ -312,15 +582,29 @@ tcp_backlog_delayed(struct tcp_pcb *pcb)
  * or else the backlog feature will get out of sync!
  *
  * @param pcb the connection pcb which is now fully accepted (or closed/aborted)
- */
+ */ 
+/*********************************************************************************************************
+** 函数名称: tcp_backlog_accepted
+** 功能描述: 减小指定的 tcp 协议控制块所属监听者的 backlog 计数值，执行逻辑如下：
+**         : 判断指定的 tcp 协议控制块是否设置了 TF_BACKLOGPEND 标志，如果设置了，表示这个 tcp 协议
+**         : 控制块代表的 tcp 连接已经统计到其所属监听者的 backlog 计数值中，所以将其移除
+** 注     释: 如果开启了 tcp 模块的 TCP_LISTEN_BACKLOG 选项，表示会通过追踪 tcp 监听者的 backlog 计数值
+**         : 来限制 tcp 模块同时建立的连接请求数
+** 输	 入: pcb - 建立连接的 tcp 协议控制块
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 tcp_backlog_accepted(struct tcp_pcb *pcb)
 {
   LWIP_ASSERT("pcb != NULL", pcb != NULL);
   LWIP_ASSERT_CORE_LOCKED();
+  
   if ((pcb->flags & TF_BACKLOGPEND) != 0) {
     if (pcb->listener != NULL) {
       LWIP_ASSERT("accepts_pending != 0", pcb->listener->accepts_pending != 0);
+	  
       pcb->listener->accepts_pending--;
       tcp_clear_flags(pcb, TF_BACKLOGPEND);
     }
@@ -1616,8 +1900,8 @@ tcp_process_refused_data(struct tcp_pcb *pcb)
  */
 /*********************************************************************************************************
 ** 函数名称: tcp_segs_free
-** 功能描述: 释放一组 tcp 协议分段数据报文
-** 输	 入: seg - 要释放的 tcp 分段组指针
+** 功能描述: 释放指定的tcp 分片数据包链表所占用的内存资源
+** 输	 入: seg - 要释放的 tcp 分片数据包链表头指针
 ** 输	 出: 
 ** 全局变量: 
 ** 调用模块: 
@@ -1639,7 +1923,7 @@ tcp_segs_free(struct tcp_seg *seg)
  */
 /*********************************************************************************************************
 ** 函数名称: tcp_seg_free
-** 功能描述: 释放一个 tcp 协议分段数据报文
+** 功能描述: 释放一个 tcp 分片数据包
 ** 输	 入: seg - 要释放的 tcp 分段数据指针
 ** 输	 出: 
 ** 全局变量: 
@@ -2422,9 +2706,11 @@ tcp_free_ooseq(struct tcp_pcb *pcb)
   if (pcb->ooseq) {
     tcp_segs_free(pcb->ooseq);
     pcb->ooseq = NULL;
+  
 #if LWIP_TCP_SACK_OUT
     memset(pcb->rcv_sacks, 0, sizeof(pcb->rcv_sacks));
 #endif /* LWIP_TCP_SACK_OUT */
+
   }
 }
 #endif /* TCP_QUEUE_OOSEQ */

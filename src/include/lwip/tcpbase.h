@@ -53,6 +53,7 @@ typedef u32_t tcpwnd_size_t;
 typedef u16_t tcpwnd_size_t;
 #endif
 
+/* 定义当前协议栈的 tcp 协议控制块状态变量 */
 enum tcp_state {
   CLOSED      = 0,
   LISTEN      = 1,
@@ -66,11 +67,23 @@ enum tcp_state {
   LAST_ACK    = 9,
   TIME_WAIT   = 10
 };
+  
 /* ATTENTION: this depends on state number ordering! */
 #define TCP_STATE_IS_CLOSING(state) ((state) >= FIN_WAIT_1)
 
 /* Flags for "apiflags" parameter in tcp_write */
+/* 如果设置了 TCP_WRITE_FLAG_COPY 表示我们在发送数据的时候需要协议栈自己申请一个 pbuf
+ * 然后把用户传进来的数据包复制到自己申请的 pbuf 中，然后再把待发送的数据包放到发送队列中
+ * 这样做的好处是可以和上层提供的 pbuf 缓冲区隔离开了，提高了安全性，但是因为增加了一次数
+ * 据拷贝，所以会降低协议栈工作效率 */
 #define TCP_WRITE_FLAG_COPY 0x01
+
+/* 如果设置了 TCP_WRITE_FLAG_MORE 表示当前发送的分片数据包是其所属“完整”数据包中的一个，并且
+ * 在这个数据包之后还需要发送其它分片数据包，所以我们在发送这个“分片”数据包的时候，不能设置
+ * tcp 协议头中的 PSH 标志，如果没设置 TCP_WRITE_FLAG_MORE 表示当前发送的分片数据包是其所属
+ * “完整”数据包的最后一个分片数据包，所以我们在发送这个分片数据包的时候需要设置 tcp 协议头中
+ * 的 PSH 标志，这样在接收端收到具有这个标志的分片数据包就知道已经收到了一个“完整”数据包，就
+ * 可以把拼接好的“完整”数据包提交给上层协议使用了 */
 #define TCP_WRITE_FLAG_MORE 0x02
 
 #define TCP_PRIO_MIN    1

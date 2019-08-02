@@ -214,11 +214,11 @@ typedef enum {
 #define PBUF_FLAG_MCASTLOOP 0x04U
 
 /** indicates this pbuf was received as link-level broadcast */
-/* 表示链路层接收到的是一个广播包 */
+/* 表示链路层接收到的是一个广播包，在 ip4_canforward 函数中使用 */
 #define PBUF_FLAG_LLBCAST   0x08U
 
 /** indicates this pbuf was received as link-level multicast */
-/* 表示链路层接收到的是一个多播包 */
+/* 表示链路层接收到的是一个多播包，在 ip4_canforward 函数中使用 */
 #define PBUF_FLAG_LLMCAST   0x10U
 
 /** indicates this pbuf includes a TCP FIN flag */

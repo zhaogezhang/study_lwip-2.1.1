@@ -133,12 +133,28 @@
  *   同步字节号控制位（SYN）：表示当前数据包是 SYN 数据包，数据包的第一个负载字节数据表示的是初始字节号
  *   结束控制位（FIN）：表示要断开当前已经建立的 tcp 连接（双向连接中的一个方向）
  *   窗口大小（Window）：表示在发送这个数据包的时候，发送这个数据包的设备当前窗口可以接收的数据字节数
- *   校验和（Checksum）：表示当前数据包的校验和（协议头和负载数据）
+ *   校验和（Checksum）：表示当前数据包的校验和（tcp 协议头和 tcp 负载数据以及 tcp 伪协议头的校验和）
  *   紧急数据指针（Urgent Pointer）：在紧急数据控制位被置位的时候有效，表示当前数据包负载数据中跟在“紧急”数据后的“非紧急”
  *                                   数据的第一个字节数据和当前数据包协议头中的“字节号”之间的偏移量
  *   选项字段（Options）：在 tcp 协议头中可附加的“选项”数据，数据格式为：1 字节选项类型 + 1 字节选项总长度 + 选项数据
  *   对齐填充（Padding）：因为 tcp 协议头中的选项数据需要 4 字节对齐，在数据不对齐时，通过追加填充 0 使其对齐
  *   负载数据（Payload）：当前数据包的负载数据
+ *
+ *
+ * TCP 协议中的伪协议头：详细描述见：https://blog.csdn.net/liuxingen/article/details/45459313#pseudo-header%E7%9A%84%E5%AE%9A%E4%B9%89
+ *                                   https://stackoverflow.com/questions/359045/what-is-the-significance-of-pseudo-header-used-in-udp-tcp
+ *   +—————–+—————–+—————–+—————–+ 
+ *   |      Source Address       | 
+ *   +—————–+—————–+—————–+—————–+ 
+ *   |    Destination Address    | 
+ *   +—————–+—————–+—————–+———–——+ 
+ *   | zero | Type | TCP Length  | 
+ *   +—————–+—————–+—————–+—————–+ 
+ *
+ *   当前 tcp 分片数据包所属数据包的“源”地址（Source Address）：IPv4 源地址
+ *   当前 tcp 分片数据包所属数据包的“目的”地址（Destination Address）：IPv4 目的地址
+ *   当前 tcp 分片数据包所属数据包的协议类型（Type）：IP_PROTO_TCP
+ *   当前 tcp 分片数据包所属数据包长度（TCP Length）：TCP Header + TCP Payload
  *
  *
  * 常用的 tcp 协议头选项数据：
@@ -346,12 +362,15 @@ static const char *const tcp_state_str[] = {
 static u16_t tcp_port = TCP_LOCAL_PORT_RANGE_START;
 
 /* Incremented every coarse grained timer shot (typically every 500 ms). */
+/* 表示当前协议栈 tcp 模块使用的基准定时器的计数值，默认基准定时器超时周期是 ms */
 u32_t tcp_ticks;
 
 static const u8_t tcp_backoff[13] =
 { 1, 2, 3, 4, 5, 6, 7, 7, 7, 7, 7, 7, 7};
 
 /* Times per slowtmr hits */
+/* 表示当前协议栈的 tcp 模块的坚持定时器退避时间选择数组，在使用的时候通过数组索引
+ * 选择退避时间，坚持定时器在连续发生退避时会使对应的数组索引值加 1 */
 static const u8_t tcp_persist_backoff[7] = { 3, 6, 12, 24, 48, 96, 120 };
 
 /* The TCP PCB lists. */
@@ -2544,6 +2563,16 @@ tcp_next_iss(struct tcp_pcb *pcb)
  * by calculating the minimum of TCP_MSS and the mtu (if set) of the target
  * netif (if not NULL).
  */
+/*********************************************************************************************************
+** 函数名称: tcp_eff_send_mss_netif
+** 功能描述: 通过当前 tcp mss 和指定网络接口的 mtu 计算到指定目的 IP 地址处的有效 mss
+** 输	 入: sendmss - 当前系统 tcp mss 大小
+**         : outif - 用来发送数据包的网路接口指针
+**         : dest - 需要发送的数据包的目的 IP 地址
+** 输	 出: err_t - 发送状态
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 u16_t
 tcp_eff_send_mss_netif(u16_t sendmss, struct netif *outif, const ip_addr_t *dest)
 {
@@ -2554,7 +2583,9 @@ tcp_eff_send_mss_netif(u16_t sendmss, struct netif *outif, const ip_addr_t *dest
 
   LWIP_ASSERT("tcp_eff_send_mss_netif: invalid dst_ip", dest != NULL);
 
+
 #if LWIP_IPV6
+
 #if LWIP_IPV4
   if (IP_IS_V6(dest))
 #endif /* LWIP_IPV4 */
@@ -2562,10 +2593,14 @@ tcp_eff_send_mss_netif(u16_t sendmss, struct netif *outif, const ip_addr_t *dest
     /* First look in destination cache, to see if there is a Path MTU. */
     mtu = nd6_get_destination_mtu(ip_2_ip6(dest), outif);
   }
+
 #if LWIP_IPV4
   else
 #endif /* LWIP_IPV4 */
+
 #endif /* LWIP_IPV6 */
+
+
 #if LWIP_IPV4
   {
     if (outif == NULL) {
@@ -2577,22 +2612,31 @@ tcp_eff_send_mss_netif(u16_t sendmss, struct netif *outif, const ip_addr_t *dest
 
   if (mtu != 0) {
     u16_t offset;
+
+  
 #if LWIP_IPV6
+
 #if LWIP_IPV4
     if (IP_IS_V6(dest))
 #endif /* LWIP_IPV4 */
+
     {
       offset = IP6_HLEN + TCP_HLEN;
     }
+
 #if LWIP_IPV4
     else
 #endif /* LWIP_IPV4 */
+
 #endif /* LWIP_IPV6 */
+
+
 #if LWIP_IPV4
     {
       offset = IP_HLEN + TCP_HLEN;
     }
 #endif /* LWIP_IPV4 */
+
     mss_s = (mtu > offset) ? (u16_t)(mtu - offset) : 0;
     /* RFC 1122, chap 4.2.2.6:
      * Eff.snd.MSS = min(SendMSS+20, MMS_S) - TCPhdrsize - IPoptionsize
@@ -2600,6 +2644,7 @@ tcp_eff_send_mss_netif(u16_t sendmss, struct netif *outif, const ip_addr_t *dest
      */
     sendmss = LWIP_MIN(sendmss, mss_s);
   }
+  
   return sendmss;
 }
 #endif /* TCP_CALCULATE_EFF_SEND_MSS */

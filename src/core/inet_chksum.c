@@ -78,7 +78,7 @@ u16_t lwip_standard_chksum(const void *dataptr, int len);
  */
 /*********************************************************************************************************
 ** 函数名称: lwip_standard_chksum
-** 功能描述: 计算指定数据的校验和值
+** 功能描述: 计算从指定地址开始的指定长度数据的校验和值
 ** 输	 入: dataptr - 需要计算校验和数据的起始地址
 **		   : len - 需要计算校验和数据的长度
 ** 输	 出: u16_t - 计算后的校验和（网络字节序）
@@ -265,6 +265,17 @@ lwip_standard_chksum(const void *dataptr, int len)
 #endif
 
 /** Parts of the pseudo checksum which are common to IPv4 and IPv6 */
+/*********************************************************************************************************
+** 函数名称: inet_cksum_pseudo_base
+** 功能描述: 计算带有指定伪协议头信息的指定数据包的校验和
+** 输	 入: p - 需要计算校验和的数据包数据
+**		   : proto - 伪协议头的协议类型信息
+**         : proto_len - 伪协议头的数据长度信息
+**         : acc - 伪协议头中的地址信息校验和
+** 输	 出: u16_t - 计算后的校验和（网络字节序）
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static u16_t
 inet_cksum_pseudo_base(struct pbuf *p, u8_t proto, u16_t proto_len, u32_t acc)
 {
@@ -272,9 +283,11 @@ inet_cksum_pseudo_base(struct pbuf *p, u8_t proto, u16_t proto_len, u32_t acc)
   int swapped = 0;
 
   /* iterate through all pbuf in chain */
+  /* 分别遍历指定的 pbuf 链表的每一个成员，然后累加每个内存块数据的校验和 */
   for (q = p; q != NULL; q = q->next) {
     LWIP_DEBUGF(INET_DEBUG, ("inet_chksum_pseudo(): checksumming pbuf %p (has next %p) \n",
                              (void *)q, (void *)q->next));
+	
     acc += LWIP_CHKSUM(q->payload, q->len);
     /*LWIP_DEBUGF(INET_DEBUG, ("inet_chksum_pseudo(): unwrapped lwip_chksum()=%"X32_F" \n", acc));*/
     /* just executing this next line is probably faster that the if statement needed
@@ -298,7 +311,10 @@ inet_cksum_pseudo_base(struct pbuf *p, u8_t proto, u16_t proto_len, u32_t acc)
      calling this twice is probably faster than if statements... */
   acc = FOLD_U32T(acc);
   acc = FOLD_U32T(acc);
+  
   LWIP_DEBUGF(INET_DEBUG, ("inet_chksum_pseudo(): pbuf chain lwip_chksum()=%"X32_F"\n", acc));
+
+  /* 把计算后的校验和取反然后返回 */
   return (u16_t)~(acc & 0xffffUL);
 }
 
@@ -315,6 +331,18 @@ inet_cksum_pseudo_base(struct pbuf *p, u8_t proto, u16_t proto_len, u32_t acc)
  * @param proto_len length of the ip data part (used for checksum of pseudo header)
  * @return checksum (as u16_t) to be saved directly in the protocol header
  */
+/*********************************************************************************************************
+** 函数名称: inet_chksum_pseudo
+** 功能描述: 计算 IPv4 协议中带有指定伪协议头信息的指定数据包的校验和
+** 输	 入: p - 需要计算校验和的数据包数据
+**		   : proto - 伪协议头的协议类型信息
+**         : proto_len - 伪协议头的数据长度信息
+**         : src - 伪协议头的源 IPv4 地址信息
+**         : dest - 伪协议头的目的 IPv4 地址信息
+** 输	 出: u16_t - 计算后的校验和（网络字节序）
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 u16_t
 inet_chksum_pseudo(struct pbuf *p, u8_t proto, u16_t proto_len,
                    const ip4_addr_t *src, const ip4_addr_t *dest)
@@ -323,12 +351,23 @@ inet_chksum_pseudo(struct pbuf *p, u8_t proto, u16_t proto_len,
   u32_t addr;
 
   addr = ip4_addr_get_u32(src);
+
+  /* 累加指定数据包的“源” IPv4 地址的“低” 16 位数据校验和 */
   acc = (addr & 0xffffUL);
+  
+  /* 累加指定数据包的“源” IPv4 地址的“高” 16 位数据校验和 */
   acc = (u32_t)(acc + ((addr >> 16) & 0xffffUL));
+  
   addr = ip4_addr_get_u32(dest);
+  
+  /* 累加指定数据包的“目的” IPv4 地址的“低” 16 位数据校验和 */
   acc = (u32_t)(acc + (addr & 0xffffUL));
+  
+  /* 累加指定数据包的“目的” IPv4 地址的“高” 16 位数据校验和 */
   acc = (u32_t)(acc + ((addr >> 16) & 0xffffUL));
+  
   /* fold down to 16 bits */
+  /* 把累加的 32 位数据校验和“折叠”为 16 位数据校验和表示格式 */
   acc = FOLD_U32T(acc);
   acc = FOLD_U32T(acc);
 
@@ -384,6 +423,18 @@ ip6_chksum_pseudo(struct pbuf *p, u8_t proto, u16_t proto_len,
  * @param proto_len length of the ip data part (used for checksum of pseudo header)
  * @return checksum (as u16_t) to be saved directly in the protocol header
  */
+/*********************************************************************************************************
+** 函数名称: ip_chksum_pseudo
+** 功能描述: 计算带有指定伪协议头信息的指定数据包的校验和
+** 输	 入: p - 需要计算校验和的数据包数据
+**		   : proto - 伪协议头的协议类型信息
+**         : proto_len - 伪协议头的数据长度信息
+**         : src - 伪协议头的源 IP 地址信息
+**         : dest - 伪协议头的目的 IP 地址信息
+** 输	 出: u16_t - 计算后的校验和（网络字节序）
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 u16_t
 ip_chksum_pseudo(struct pbuf *p, u8_t proto, u16_t proto_len,
                  const ip_addr_t *src, const ip_addr_t *dest)
@@ -393,9 +444,11 @@ ip_chksum_pseudo(struct pbuf *p, u8_t proto, u16_t proto_len,
     return ip6_chksum_pseudo(p, proto, proto_len, ip_2_ip6(src), ip_2_ip6(dest));
   }
 #endif /* LWIP_IPV6 */
+
 #if LWIP_IPV4 && LWIP_IPV6
   else
 #endif /* LWIP_IPV4 && LWIP_IPV6 */
+
 #if LWIP_IPV4
   {
     return inet_chksum_pseudo(p, proto, proto_len, ip_2_ip4(src), ip_2_ip4(dest));
@@ -404,6 +457,18 @@ ip_chksum_pseudo(struct pbuf *p, u8_t proto, u16_t proto_len,
 }
 
 /** Parts of the pseudo checksum which are common to IPv4 and IPv6 */
+/*********************************************************************************************************
+** 函数名称: inet_cksum_pseudo_partial_base
+** 功能描述: 计算带有指定伪协议头信息的指定数据包的指定数据长度的校验和
+** 输     入: p - 需要计算校验和的数据包数据
+** 		   : proto - 伪协议头的协议类型信息
+** 		   : proto_len - 伪协议头的数据长度信息
+**         : chksum_len - 在指定数据包中需要计算校验和的数据长度
+** 		   : acc - 伪协议头中的地址信息校验和
+** 输     出: u16_t - 计算后的校验和（网络字节序）
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static u16_t
 inet_cksum_pseudo_partial_base(struct pbuf *p, u8_t proto, u16_t proto_len,
                                u16_t chksum_len, u32_t acc)
@@ -461,6 +526,19 @@ inet_cksum_pseudo_partial_base(struct pbuf *p, u8_t proto, u16_t proto_len,
  * @param proto_len length of the ip data part (used for checksum of pseudo header)
  * @return checksum (as u16_t) to be saved directly in the protocol header
  */
+/*********************************************************************************************************
+** 函数名称: inet_chksum_pseudo_partial
+** 功能描述: 计算 IPv4 协议中带有指定伪协议头信息的指定数据包的指定数据长度的校验和
+** 输	 入: p - 需要计算校验和的数据包数据
+**		   : proto - 伪协议头的协议类型信息
+**		   : proto_len - 伪协议头的数据长度信息
+**         : chksum_len - 在指定数据包中需要计算校验和的数据长度
+**		   : src - 伪协议头的源 IPv4 地址信息
+**		   : dest - 伪协议头的目的 IPv4 地址信息
+** 输	 出: u16_t - 计算后的校验和（网络字节序）
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 u16_t
 inet_chksum_pseudo_partial(struct pbuf *p, u8_t proto, u16_t proto_len,
                            u16_t chksum_len, const ip4_addr_t *src, const ip4_addr_t *dest)
@@ -531,6 +609,19 @@ ip6_chksum_pseudo_partial(struct pbuf *p, u8_t proto, u16_t proto_len,
  * @param proto_len length of the ip data part (used for checksum of pseudo header)
  * @return checksum (as u16_t) to be saved directly in the protocol header
  */
+/*********************************************************************************************************
+** 函数名称: ip_chksum_pseudo_partial
+** 功能描述: 计算带有指定伪协议头信息的指定数据包的指定数据长度的校验和
+** 输	 入: p - 需要计算校验和的数据包数据
+**		   : proto - 伪协议头的协议类型信息
+**         : proto_len - 伪协议头的数据长度信息
+**         : chksum_len - 在指定数据包中需要计算校验和的数据长度
+**         : src - 伪协议头的源 IP 地址信息
+**         : dest - 伪协议头的目的 IP 地址信息
+** 输	 出: u16_t - 计算后的校验和（网络字节序）
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 u16_t
 ip_chksum_pseudo_partial(struct pbuf *p, u8_t proto, u16_t proto_len,
                          u16_t chksum_len, const ip_addr_t *src, const ip_addr_t *dest)

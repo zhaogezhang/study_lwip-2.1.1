@@ -342,7 +342,19 @@ tcp_pbuf_prealloc(pbuf_layer layer, u16_t length, u16_t max_length,
 /** Add a checksum of newly added data to the segment.
  *
  * Called by tcp_write and tcp_split_unsent_seg.
- */ 
+ */
+/*********************************************************************************************************
+** 函数名称: tcp_seg_add_chksum
+** 功能描述: 把添加到 tcp 分片数据包中的新数据的校验和原有数据的校验和累加到一起，生成整体数据校验和
+** 输	 入: chksum - 新添加到 tcp 分片数据包中的新数据的校验和
+**         : len - 新添加到 tcp 分片数据包中的新数据的长度
+**         : seg_chksum - tcp 分片数据包原有数据的校验和
+**         : seg_chksum_swapped - tcp 分片数据包原有数据的校验和的字节交换数据
+** 输	 出: seg_chksum - 整体数据的校验和
+**         : seg_chksum_swapped - 整体数据的校验和的字节交换数据
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void
 tcp_seg_add_chksum(u16_t chksum, u16_t len, u16_t *seg_chksum,
                    u8_t *seg_chksum_swapped)
@@ -1077,9 +1089,10 @@ memerr:
  */ 
 /*********************************************************************************************************
 ** 函数名称: tcp_split_unsent_seg
-** 功能描述: 把指定的 tcp 协议控制块的未发送数据队列的第一个分片数据包按照指定的大小进行分割
+** 功能描述: 把指定的 tcp 协议控制块的未发送数据队列的第一个分片数据包按照指定大小进行分割，把分割
+**         : 后的数据包封装成 tcp 分片数据包，并通过链表按照原来顺序链接起来
 ** 输	 入: pcb - 指定的 tcp 协议控制块
-**         : split - 表示分割后，原来的分片数据包保留的字节数
+**         : split - 表示分割后的 tcp 分片数据包大小
 ** 输	 出: err_t - 操作状态
 ** 全局变量: 
 ** 调用模块: 
@@ -1137,11 +1150,11 @@ tcp_split_unsent_seg(struct tcp_pcb *pcb, u16_t split)
 
   optlen = LWIP_TCP_OPT_LENGTH(optflags);
 
-  /* 表示当前分片数据包被分割后，需要保留下来的数据字节数 */
+  /* 表示当前分片数据包需要被分割下来的数据块字节数 */
   remainder = useg->len - split;
 
   /* Create new pbuf for the remainder of the split */
-  /* 创建一个新的 pbuf 存储保留下来的字节数，包括 tcp 协议头选项数据，这个 pbuf 内存空间是物理地址连续的 */
+  /* 创建一个新的 pbuf 存储分割下来的数据块数据，包括 tcp 协议头选项数据，这个 pbuf 内存空间是物理地址连续的 */
   p = pbuf_alloc(PBUF_TRANSPORT, remainder + optlen, PBUF_RAM);
   if (p == NULL) {
     LWIP_DEBUGF(TCP_OUTPUT_DEBUG | LWIP_DBG_LEVEL_SERIOUS,
@@ -1150,15 +1163,18 @@ tcp_split_unsent_seg(struct tcp_pcb *pcb, u16_t split)
   }
 
   /* Offset into the original pbuf is past TCP/IP headers, options, and split amount */
+  /* 计算分割点在整个 tcp 分片数据包的 pbuf 内存空间中的偏移量 */
   offset = useg->p->tot_len - useg->len + split;
   
   /* Copy remainder into new pbuf, headers and options will not be filled out */
+  /* 从 tcp 分片数据包的分割点开始复制指定字节数的数据到新申请的 pbuf 中，在复制的时候，没有复制 tcp 协议头选项数据 */
   if (pbuf_copy_partial(useg->p, (u8_t *)p->payload + optlen, remainder, offset ) != remainder) {
     LWIP_DEBUGF(TCP_OUTPUT_DEBUG | LWIP_DBG_LEVEL_SERIOUS,
                 ("tcp_split_unsent_seg: could not copy pbuf remainder %u\n", remainder));
     goto memerr;
   }
-  
+
+/* 计算从 tcp 分片数据包上分割下来的数据块的校验和 */
 #if TCP_CHECKSUM_ON_COPY
   /* calculate the checksum on remainder data */
   tcp_seg_add_chksum(~inet_chksum((const u8_t *)p->payload + optlen, remainder), remainder,
@@ -1168,6 +1184,7 @@ tcp_split_unsent_seg(struct tcp_pcb *pcb, u16_t split)
   /* Options are created when calling tcp_output() */
 
   /* Migrate flags from original segment */
+  /* 在把 tcp 分片数据包分割之后，处理 PSH 和 FIN 控制位标志变量 */
   split_flags = TCPH_FLAGS(useg->tcphdr);
   remainder_flags = 0; /* ACK added in tcp_output() */
 
@@ -1175,12 +1192,14 @@ tcp_split_unsent_seg(struct tcp_pcb *pcb, u16_t split)
     split_flags &= ~TCP_PSH;
     remainder_flags |= TCP_PSH;
   }
+  
   if (split_flags & TCP_FIN) {
     split_flags &= ~TCP_FIN;
     remainder_flags |= TCP_FIN;
   }
   /* SYN should be left on split, RST should not be present with data */
 
+  /* 把从原来 tcp 分片数据包上分割下来的 pbuf 内存块封装成 tcp 分片数据包的结构 */
   seg = tcp_create_segment(pcb, p, remainder_flags, lwip_ntohl(useg->tcphdr->seqno) + split, optflags);
   if (seg == NULL) {
     LWIP_DEBUGF(TCP_OUTPUT_DEBUG | LWIP_DBG_LEVEL_SERIOUS,
@@ -1188,6 +1207,7 @@ tcp_split_unsent_seg(struct tcp_pcb *pcb, u16_t split)
     goto memerr;
   }
 
+/* 初始化从原来 tcp 分片数据包上分割下来的 tcp 分片数据包的校验和信息 */
 #if TCP_CHECKSUM_ON_COPY
   seg->chksum = chksum;
   seg->chksum_swapped = chksum_swapped;
@@ -1195,21 +1215,29 @@ tcp_split_unsent_seg(struct tcp_pcb *pcb, u16_t split)
 #endif /* TCP_CHECKSUM_ON_COPY */
 
   /* Remove this segment from the queue since trimming it may free pbufs */
+  /* 在分割完 tcp 分片数据包之后，更新原来的 tcp 协议控制块的发送队列长度 */
   pcb->snd_queuelen -= pbuf_clen(useg->p);
 
   /* Trim the original pbuf into our split size.  At this point our remainder segment must be setup
   successfully because we are modifying the original segment */
+  /* 在分割完 tcp 分片数据包之后，对原来的 tcp 分片数据包的 pbuf 进行缩减操作，回收那些不使用的 pbuf 内存 */
   pbuf_realloc(useg->p, useg->p->tot_len - remainder);
+
+  /* 在分割完 tcp 分片数据包之后，更新原来的 tcp 分片数据包的协议头中的控制位 */
   useg->len -= remainder;
   TCPH_SET_FLAG(useg->tcphdr, split_flags);
+
+  /* 在分割完 tcp 分片数据包之后，更新原来的 tcp 分片数据包的 oversize 空间大小变量值 */
 #if TCP_OVERSIZE_DBGCHECK
   /* By trimming, realloc may have actually shrunk the pbuf, so clear oversize_left */
   useg->oversize_left = 0;
 #endif /* TCP_OVERSIZE_DBGCHECK */
 
   /* Add back to the queue with new trimmed pbuf */
+  /* 在分割完 tcp 分片数据包之后，更新原来的 tcp 协议控制块的发送队列长度 */
   pcb->snd_queuelen += pbuf_clen(useg->p);
 
+  /* 在分割完 tcp 分片数据包之后，更新原来的 tcp 协议控制块的校验和 */
 #if TCP_CHECKSUM_ON_COPY
   /* The checksum on the split segment is now incorrect. We need to re-run it over the split */
   useg->chksum = 0;
@@ -1222,7 +1250,9 @@ tcp_split_unsent_seg(struct tcp_pcb *pcb, u16_t split)
     offset -= q->len;
     q = q->next;
   }
+  
   LWIP_ASSERT("Found start of payload pbuf", q != NULL);
+  
   /* Checksum the first payload pbuf accounting for offset, then other pbufs are all payload */
   for (; q != NULL; offset = 0, q = q->next) {
     tcp_seg_add_chksum(~inet_chksum((const u8_t *)q->payload + offset, q->len - offset), q->len - offset,
@@ -1233,9 +1263,11 @@ tcp_split_unsent_seg(struct tcp_pcb *pcb, u16_t split)
   /* Update number of segments on the queues. Note that length now may
    * exceed TCP_SND_QUEUELEN! We don't have to touch pcb->snd_buf
    * because the total amount of data is constant when packet is split */
+  /* 把分割下来的这部分数据块的 pbuf 长度统计到当前的 tcp 协议控制块的发送队列中 */
   pcb->snd_queuelen += pbuf_clen(seg->p);
 
   /* Finally insert remainder into queue after split (which stays head) */
+  /* 把分割下来的这部分数据块的 pbuf 链表插入到原来的位置处 */
   seg->next = useg->next;
   useg->next = seg;
 
@@ -1267,12 +1299,21 @@ memerr:
  * @param pcb the tcp_pcb over which to send a segment
  * @return ERR_OK if sent, another err_t otherwise
  */
+/*********************************************************************************************************
+** 函数名称: tcp_send_fin
+** 功能描述: 为指定的 tcp 协议控制块发送一个 FIN 数据包
+** 输	 入: pcb - 需要发送 FIN 数据包的 tcp 协议控制块
+** 输	 出: err_t - 操作状态
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 err_t
 tcp_send_fin(struct tcp_pcb *pcb)
 {
   LWIP_ASSERT("tcp_send_fin: invalid pcb", pcb != NULL);
 
   /* first, try to add the fin to the last unsent segment */
+  /* 如果当前 tcp 协议控制块的未发送队列不为空，则借助未发送队列的最后一个分片数据包发送 FIN 请求 */
   if (pcb->unsent != NULL) {
     struct tcp_seg *last_unsent;
     for (last_unsent = pcb->unsent; last_unsent->next != NULL;
@@ -1285,7 +1326,10 @@ tcp_send_fin(struct tcp_pcb *pcb)
       return ERR_OK;
     }
   }
+  
   /* no data, no length, flags, copy=1, no optdata */
+  /* 如果当前 tcp 协议控制块的未发送队列为空，则创建一个 FIN tcp 分片数据包，并添加到当前
+   * tcp 协议控制块的未发送队列中 */
   return tcp_enqueue_flags(pcb, TCP_FIN);
 }
 
@@ -1298,6 +1342,15 @@ tcp_send_fin(struct tcp_pcb *pcb)
  * @param pcb Protocol control block for the TCP connection.
  * @param flags TCP header flags to set in the outgoing segment.
  */
+/*********************************************************************************************************
+** 函数名称: tcp_enqueue_flags
+** 功能描述: 为指定的 tcp 协议控制块发送一个指定控制位信息的数据包，一般用来发送 SYN 或者 FIN 数据包
+** 输	 入: pcb - 需要发送数据包的 tcp 协议控制块
+**         : flags - 需要发送的数据包的控制位信息
+** 输	 出: err_t - 操作状态
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 err_t
 tcp_enqueue_flags(struct tcp_pcb *pcb, u8_t flags)
 {
@@ -1307,7 +1360,7 @@ tcp_enqueue_flags(struct tcp_pcb *pcb, u8_t flags)
   u8_t optlen = 0;
 
   LWIP_DEBUGF(TCP_QLEN_DEBUG, ("tcp_enqueue_flags: queuelen: %"U16_F"\n", (u16_t)pcb->snd_queuelen));
-
+  
   LWIP_ASSERT("tcp_enqueue_flags: need either TCP_SYN or TCP_FIN in flags (programmer violates API)",
               (flags & (TCP_SYN | TCP_FIN)) != 0);
   LWIP_ASSERT("tcp_enqueue_flags: invalid pcb", pcb != NULL);
@@ -1316,8 +1369,12 @@ tcp_enqueue_flags(struct tcp_pcb *pcb, u8_t flags)
 
   /* Get options for this segment. This is a special case since this is the
      only place where a SYN can be sent. */
+  /* 如果要发送的是 SYN 数据包，则处理和 SYN 数据包相关的选项标志 */   
   if (flags & TCP_SYN) {
+  	/* 在 SYN 数据包中添加最大分片数据包声明选项标志 */
     optflags = TF_SEG_OPTS_MSS;
+
+/* 在 SYN 数据包中添加窗口扩大因子选项标志 */
 #if LWIP_WND_SCALE
     if ((pcb->state != SYN_RCVD) || (pcb->flags & TF_WND_SCALE)) {
       /* In a <SYN,ACK> (sent in state SYN_RCVD), the window scale option may only
@@ -1325,6 +1382,8 @@ tcp_enqueue_flags(struct tcp_pcb *pcb, u8_t flags)
       optflags |= TF_SEG_OPTS_WND_SCALE;
     }
 #endif /* LWIP_WND_SCALE */
+
+/* 在 SYN 数据包中添加选择确认选项标志 */
 #if LWIP_TCP_SACK_OUT
     if ((pcb->state != SYN_RCVD) || (pcb->flags & TF_SACK)) {
       /* In a <SYN,ACK> (sent in state SYN_RCVD), the SACK_PERM option may only
@@ -1332,7 +1391,10 @@ tcp_enqueue_flags(struct tcp_pcb *pcb, u8_t flags)
       optflags |= TF_SEG_OPTS_SACK_PERM;
     }
 #endif /* LWIP_TCP_SACK_OUT */
+
   }
+
+/* 在当前数据包中添加时间戳选项标志 */
 #if LWIP_TCP_TIMESTAMPS
   if ((pcb->flags & TF_TIMESTAMP) || ((flags & TCP_SYN) && (pcb->state != SYN_RCVD))) {
     /* Make sure the timestamp option is only included in data segments if we
@@ -1340,23 +1402,29 @@ tcp_enqueue_flags(struct tcp_pcb *pcb, u8_t flags)
     optflags |= TF_SEG_OPTS_TS;
   }
 #endif /* LWIP_TCP_TIMESTAMPS */
+
+  /* 根据待发送的 tcp 分片数据包选项标志计算对应的选项数据空间大小 */
   optlen = LWIP_TCP_OPT_LENGTH_SEGMENT(optflags, pcb);
 
   /* Allocate pbuf with room for TCP header + options */
+  /* 为待发送的 tcp 分片数据包申请相应大小的 pbuf 数据包内存空间 */
   if ((p = pbuf_alloc(PBUF_TRANSPORT, optlen, PBUF_RAM)) == NULL) {
     tcp_set_flags(pcb, TF_NAGLEMEMERR);
     TCP_STATS_INC(tcp.memerr);
     return ERR_MEM;
   }
+  
   LWIP_ASSERT("tcp_enqueue_flags: check that first pbuf can hold optlen",
               (p->len >= optlen));
 
   /* Allocate memory for tcp_seg, and fill in fields. */
+  /* 为指定的 tcp 协议控制块创建一个 tcp 分片数据包结构，并根据函数参数初始化 tcp 协议头 */
   if ((seg = tcp_create_segment(pcb, p, flags, pcb->snd_lbb, optflags)) == NULL) {
     tcp_set_flags(pcb, TF_NAGLEMEMERR);
     TCP_STATS_INC(tcp.memerr);
     return ERR_MEM;
   }
+  
   LWIP_ASSERT("seg->tcphdr not aligned", ((mem_ptr_t)seg->tcphdr % LWIP_MIN(MEM_ALIGNMENT, 4)) == 0);
   LWIP_ASSERT("tcp_enqueue_flags: invalid segment length", seg->len == 0);
 
@@ -1367,6 +1435,7 @@ tcp_enqueue_flags(struct tcp_pcb *pcb, u8_t flags)
                (u16_t)flags));
 
   /* Now append seg to pcb->unsent queue */
+  /* 把新创建的 tcp 分片数据包添加到当前 tcp 协议控制块的未发送数据队列链表尾部 */
   if (pcb->unsent == NULL) {
     pcb->unsent = seg;
   } else {
@@ -1374,6 +1443,8 @@ tcp_enqueue_flags(struct tcp_pcb *pcb, u8_t flags)
     for (useg = pcb->unsent; useg->next != NULL; useg = useg->next);
     useg->next = seg;
   }
+
+/* 设置当前 tcp 协议控制块的 oversize 记录变量值 */
 #if TCP_OVERSIZE
   /* The new unsent tail has no space */
   pcb->unsent_oversize = 0;
@@ -1384,13 +1455,18 @@ tcp_enqueue_flags(struct tcp_pcb *pcb, u8_t flags)
     pcb->snd_lbb++;
     /* optlen does not influence snd_buf */
   }
+
+  /* 如果当前发送的是 FIN 数据包，则设置当前 tcp 协议控制块为 TF_FIN 状态 */
   if (flags & TCP_FIN) {
     tcp_set_flags(pcb, TF_FIN);
   }
 
   /* update number of segments on the queues */
+  /* 更新当前 tcp 协议控制块的发送队列长度变量值 */
   pcb->snd_queuelen += pbuf_clen(seg->p);
+  
   LWIP_DEBUGF(TCP_QLEN_DEBUG, ("tcp_enqueue_flags: %"S16_F" (after enqueued)\n", pcb->snd_queuelen));
+  
   if (pcb->snd_queuelen != 0) {
     LWIP_ASSERT("tcp_enqueue_flags: invalid queue length",
                 pcb->unacked != NULL || pcb->unsent != NULL);
@@ -1438,6 +1514,15 @@ tcp_build_timestamp_option(const struct tcp_pcb *pcb, u32_t *opts)
  * @param optlen the length of other TCP options (in bytes)
  * @return the number of SACK ranges that can be used
  */
+/*********************************************************************************************************
+** 函数名称: tcp_get_num_sacks
+** 功能描述: 统计指定的 tcp 协议控制块当前有效的 sack 数据对个数
+** 输	 入: pcb - 需要统计 sack 数据对个数的 tcp 协议控制块
+**         : optlen - 当前 tcp 分片数据包中，其他选项数据的长度
+** 输	 出: num_sacks - 当前 tcp 分片数据包中 sack 选项数据对个数
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static u8_t
 tcp_get_num_sacks(const struct tcp_pcb *pcb, u8_t optlen)
 {
@@ -1509,6 +1594,14 @@ tcp_build_sack_option(const struct tcp_pcb *pcb, u32_t *opts, u8_t num_sacks)
  *
  * @param opts option pointer where to store the window scale option
  */
+/*********************************************************************************************************
+** 函数名称: tcp_build_wnd_scale_option
+** 功能描述: 在指定的缓存地址处构建一个接收窗口扩大因子选项
+** 输	 入: opts - 存储成功构建的接收窗口扩大因子选项数据的缓存地址
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void
 tcp_build_wnd_scale_option(u32_t *opts)
 {
@@ -1527,13 +1620,43 @@ tcp_build_wnd_scale_option(u32_t *opts)
  * @return ERR_OK if data has been sent or nothing to send
  *         another err_t on error
  */
+/*********************************************************************************************************
+** 函数名称: tcp_output
+** 功能描述: 尝试发送指定 tcp 协议控制块的未发送数据队列中的分片数据包数据，具体操作如下：
+**         : 1. 判断当前是否正在处理接收数据包，如果正在接收数据包，则直接退出，因为在处理完接收数据包
+**         :    的时候，就会重新自动调用这个函数
+**         : 2. 从发送窗口和拥塞窗口中选择个小的值作为本次发送数据使用的窗口
+**         : 3. 如果当前 tcp 协议控制块的未发送队列为空，并且当前 tcp 协议控制块设置了 TF_ACK_NOW 标志
+**         :    则向当前 tcp 协议控制块的对端设备发送一个没有负载数据的应答数据包
+**         : 4. 根据指定的 IP 地址信息为指定的 tcp 协议控制块找到一个网络接口用来发送数据包
+**         : 5. 如果当前 tcp 协议控制块的本地 IP 地址信息还没绑定，则设置为用来发送数据包的网络接口的 IP 地址
+**         : 6. 如果当前 tcp 协议控制块未发送数据队列中的第一个未发送分片数据包的字序号范围已经超过了当
+**         :    前 tcp 协议控制块的发送窗口范围，则尝试启动一个坚持定时器，并尝试发送一个没有负载数据的
+**         :    应答数据包
+**         : 7. 分别遍历当前 tcp 协议控制块未发送数据队列中的每一个分片数据包并尝试发送出去，操作如下：
+**         :    a. 根据 Nagle 算法判断指定的 tcp 协议控制块是否可以发送数据
+**         :    b. 把指定的 tcp 协议控制块的指定分片数据包通过指定的网络接口发送出去
+**         :    c. 计算当前发送的数据包的下一个数据包的字序号的值，并尝试更新当前 tcp 协议控制块的下一
+**         :       次发送数据包的字序号的值
+**         :    d. 把当前发送完成的 tcp 分片数据包按照字序号升序的方式插入到当前 tcp 协议控制块的发送但
+**         :       未应答队列链表的相应位置处
+**         : 8. 如果当前 tcp 协议控制块的未发送数据队列为空，则设置当前 tcp 协议控制块的 unsent_oversize 为 0
+** 输	 入: pcb - 要发送数据包的 tcp 协议控制块
+** 输	 出: err_t - 发送状态
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 err_t
 tcp_output(struct tcp_pcb *pcb)
 {
+  /* 分别指向当前 tcp 协议控制块未发送队列中“第一个”未发送分片数据包和
+   * 当前tcp 协议控制块发送但是还未接收到应答数据包队里中的“最后一个”分片数据包 */
   struct tcp_seg *seg, *useg;
+  
   u32_t wnd, snd_nxt;
   err_t err;
   struct netif *netif;
+  
 #if TCP_CWND_DEBUG
   s16_t i = 0;
 #endif /* TCP_CWND_DEBUG */
@@ -1549,10 +1672,13 @@ tcp_output(struct tcp_pcb *pcb)
      code. If so, we do not output anything. Instead, we rely on the
      input processing code to call us when input processing is done
      with. */
+  /* 判断当前是否正在处理接收数据包，如果正在接收数据包，则直接退出，因为
+   * 在处理完接收数据包的时候，就会重新自动调用这个函数 */
   if (tcp_input_pcb == pcb) {
     return ERR_OK;
   }
 
+  /* 从发送窗口和拥塞窗口中选择个小的值作为本次发送数据使用的窗口 */
   wnd = LWIP_MIN(pcb->snd_wnd, pcb->cwnd);
 
   seg = pcb->unsent;
@@ -1567,9 +1693,12 @@ tcp_output(struct tcp_pcb *pcb)
 
     /* If the TF_ACK_NOW flag is set and the ->unsent queue is empty, construct
      * an empty ACK segment and send it. */
+    /* 如果当前 tcp 协议控制块的未发送队列为空，并且当前 tcp 协议控制块设置了 TF_ACK_NOW 标志
+	 * 则向当前 tcp 协议控制块的对端设备发送一个没有负载数据的应答数据包 */
     if (pcb->flags & TF_ACK_NOW) {
       return tcp_send_empty_ack(pcb);
     }
+	
     /* nothing to send: shortcut out of here */
     goto output_done;
   } else {
@@ -1581,12 +1710,14 @@ tcp_output(struct tcp_pcb *pcb)
                  lwip_ntohl(seg->tcphdr->seqno), pcb->lastack));
   }
 
+  /* 根据指定的 IP 地址信息为指定的 tcp 协议控制块找到一个网络接口用来发送数据包 */
   netif = tcp_route(pcb, &pcb->local_ip, &pcb->remote_ip);
   if (netif == NULL) {
     return ERR_RTE;
   }
 
   /* If we don't have a local IP address, we get one from netif */
+  /* 如果当前 tcp 协议控制块的本地 IP 地址信息还没绑定，则设置为用来发送数据包的网络接口的 IP 地址 */
   if (ip_addr_isany(&pcb->local_ip)) {
     const ip_addr_t *local_ip = ip_netif_get_local_ip(netif, &pcb->remote_ip);
     if (local_ip == NULL) {
@@ -1596,6 +1727,8 @@ tcp_output(struct tcp_pcb *pcb)
   }
 
   /* Handle the current segment not fitting within the window */
+  /* 如果当前 tcp 协议控制块未发送数据队列中的第一个未发送分片数据包的字序号范围已经超过了当前
+   * tcp 协议控制块的发送窗口范围，则尝试启动一个坚持定时器，并尝试发送一个没有负载数据的应答数据包 */
   if (lwip_ntohl(seg->tcphdr->seqno) - pcb->lastack + seg->len > wnd) {
     /* We need to start the persistent timer when the next unsent segment does not fit
      * within the remaining (could be 0) send window and RTO timer is not running (we
@@ -1603,17 +1736,24 @@ tcp_output(struct tcp_pcb *pcb)
      * then we split the segment. We don't consider the congestion window since a cwnd
      * smaller than 1 SMSS implies in-flight data
      */
+    /* 如果当前 tcp 协议控制块的发送窗口不为 0，没有接收但是没应答的数据包，并且没有启动
+	 * 坚持定时器，则启动坚持定时器 */
     if (wnd == pcb->snd_wnd && pcb->unacked == NULL && pcb->persist_backoff == 0) {
       pcb->persist_cnt = 0;
       pcb->persist_backoff = 1;
       pcb->persist_probe = 0;
     }
+	
     /* We need an ACK, but can't send data now, so send an empty ACK */
+	/* 如果当前 tcp 协议控制块设置了 TF_ACK_NOW 标志，则向当前 tcp 协议控制块的
+	 * 对端设备发送一个没有负载数据的应答数据包 */
     if (pcb->flags & TF_ACK_NOW) {
       return tcp_send_empty_ack(pcb);
     }
+	
     goto output_done;
   }
+  
   /* Stop persist timer, above conditions are not active */
   pcb->persist_backoff = 0;
 
@@ -1622,11 +1762,15 @@ tcp_output(struct tcp_pcb *pcb)
   if (useg != NULL) {
     for (; useg->next != NULL; useg = useg->next);
   }
+  
   /* data available and window allows it to be sent? */
+  /* 分别遍历当前 tcp 协议控制块未发送数据队列中的每一个分片数据包并尝试发送出去 */
   while (seg != NULL &&
          lwip_ntohl(seg->tcphdr->seqno) - pcb->lastack + seg->len <= wnd) {
+         
     LWIP_ASSERT("RST not expected here!",
                 (TCPH_FLAGS(seg->tcphdr) & TCP_RST) == 0);
+	
     /* Stop sending if the nagle algorithm would prevent it
      * Don't stop:
      * - if tcp_write had a memory error before (prevent delayed ACK timeout) or
@@ -1634,10 +1778,12 @@ tcp_output(struct tcp_pcb *pcb)
      *   either seg->next != NULL or pcb->unacked == NULL;
      *   RST is no sent using tcp_write/tcp_output.
      */
+	/* 根据 Nagle 算法判断指定的 tcp 协议控制块是否可以发送数据 */
     if ((tcp_do_output_nagle(pcb) == 0) &&
         ((pcb->flags & (TF_NAGLEMEMERR | TF_FIN)) == 0)) {
       break;
     }
+		
 #if TCP_CWND_DEBUG
     LWIP_DEBUGF(TCP_CWND_DEBUG, ("tcp_output: snd_wnd %"TCPWNDSIZE_F", cwnd %"TCPWNDSIZE_F", wnd %"U32_F", effwnd %"U32_F", seq %"U32_F", ack %"U32_F", i %"S16_F"\n",
                                  pcb->snd_wnd, pcb->cwnd, wnd,
@@ -1651,27 +1797,41 @@ tcp_output(struct tcp_pcb *pcb)
       TCPH_SET_FLAG(seg->tcphdr, TCP_ACK);
     }
 
+    /* 把指定的 tcp 协议控制块的指定分片数据包通过指定的网络接口发送出去 */
     err = tcp_output_segment(seg, pcb, netif);
     if (err != ERR_OK) {
       /* segment could not be sent, for whatever reason */
       tcp_set_flags(pcb, TF_NAGLEMEMERR);
       return err;
     }
+	
 #if TCP_OVERSIZE_DBGCHECK
     seg->oversize_left = 0;
 #endif /* TCP_OVERSIZE_DBGCHECK */
+
+    /* 在发送完一个 tcp 分片数据包后，更新当前 tcp 协议控制块的未发送数据队列
+     * 指针指向下一个未发送的分片数据包位置处 */
     pcb->unsent = seg->next;
+
     if (pcb->state != SYN_SENT) {
       tcp_clear_flags(pcb, TF_ACK_DELAY | TF_ACK_NOW);
     }
+
+	/* 计算当前发送的数据包的下一个数据包的字序号的值，并尝试更新当前 tcp 协议控制块的
+	 * 下一次发送数据包的字序号的值 */
     snd_nxt = lwip_ntohl(seg->tcphdr->seqno) + TCP_TCPLEN(seg);
     if (TCP_SEQ_LT(pcb->snd_nxt, snd_nxt)) {
       pcb->snd_nxt = snd_nxt;
     }
-    /* put segment on unacknowledged list if length > 0 */
+	
+    /* put segment on unacknowledg1ed list if length > 0 */
+	/* 把当前发送完成的 tcp 分片数据包按照字序号升序的方式插入到当前 tcp 协议控制块的
+	 * 发送但未应答队列链表的相应位置处 */
     if (TCP_TCPLEN(seg) > 0) {
       seg->next = NULL;
+	  
       /* unacked list is empty? */
+	  /* 如果当前 tcp 协议控制块的发送但未应答队列链表为空，则直接放到链表头部并更新 useg 指针变量值 */
       if (pcb->unacked == NULL) {
         pcb->unacked = seg;
         useg = seg;
@@ -1680,6 +1840,8 @@ tcp_output(struct tcp_pcb *pcb)
         /* In the case of fast retransmit, the packet should not go to the tail
          * of the unacked queue, but rather somewhere before it. We need to check for
          * this case. -STJ Jul 27, 2004 */
+        /* 把当前发送完成的 tcp 分片数据包按照字序号升序的方式插入到当前 tcp 协议控制块的
+		 * 发送但未应答队列链表的相应位置处 */
         if (TCP_SEQ_LT(lwip_ntohl(seg->tcphdr->seqno), lwip_ntohl(useg->tcphdr->seqno))) {
           /* add segment to before tail of unacked list, keeping the list sorted */
           struct tcp_seg **cur_seg = &(pcb->unacked);
@@ -1699,8 +1861,11 @@ tcp_output(struct tcp_pcb *pcb)
     } else {
       tcp_seg_free(seg);
     }
+	
     seg = pcb->unsent;
   }
+
+/* 如果当前 tcp 协议控制块的未发送数据队列为空，则设置当前 tcp 协议控制块的 unsent_oversize 为 0 */
 #if TCP_OVERSIZE
   if (pcb->unsent == NULL) {
     /* last unsent has been removed, reset unsent_oversize */
@@ -1722,6 +1887,15 @@ output_done:
  * @arg seg the tcp segment to check
  * @return 1 if ref != 1, 0 if ref == 1
  */
+/*********************************************************************************************************
+** 函数名称: tcp_output_segment_busy
+** 功能描述: 判断指定的 tcp 分片数据包的 pbuf 结构是否有其他地方引用
+** 输	 入: seg - 需要判断的 tcp 分片数据包
+** 输	 出: 1 - 有其他地方引用
+**         : 0 - 没有其他地方引用
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static int
 tcp_output_segment_busy(const struct tcp_seg *seg)
 {
@@ -1745,12 +1919,41 @@ tcp_output_segment_busy(const struct tcp_seg *seg)
  * @param pcb the tcp_pcb for the TCP connection used to send the segment
  * @param netif the netif used to send the segment
  */
+/*********************************************************************************************************
+** 函数名称: tcp_output_segment
+** 功能描述: 把指定的 tcp 协议控制块的指定分片数据包通过指定的网络接口发送出去，具体操作如下：
+**         : 1. 判断待发送的 tcp 分片数据包的 pbuf 结构是否有其他地方引用，如果有则直接返回
+**         : 2. 设置待发送的 tcp 分片数据包的应答字序号字段值，因为应答字序号随着接收数据包变化而变化
+**         :    所以是动态的，所以待发送的 tcp 分片数据包协议头中的字序号字段值是在发送这个数据包的时
+**         :    候根据当前状态而设置，而不是预先设置好
+**         : 3. 设置待发送数据包的 tcp 协议头中的窗口大小字段变量值
+**         : 4. 设置当前 tcp 协议控制块接收窗口的右边沿位置
+**         : 5. 如果当前 tcp 分片数据包设置了 TF_SEG_OPTS_MSS 标志，则在这个数据包中构建 MSS 选项数据
+**         : 6. 如果当前 tcp 分片数据包设置了 TF_SEG_OPTS_TS 标志，则在这个数据包中构建时间戳选项数据
+**         : 7. 如果当前 tcp 分片数据包设置了 TF_SEG_OPTS_WND_SCALE 标志，则在这个数据包中构建窗口扩大
+**         :    因子选项数据
+**         : 8. 如果当前 tcp 分片数据包设置了 TF_SEG_OPTS_SACK_PERM 标志，则在这个数据包中构建“允许选
+**         :    择确认”选项数据
+**         : 9. 如果当前 tcp 协议控制块的数据包重传定时器没启动，则启动
+**         : 10.初始化当前 tcp 协议控制块计算收发数据包的往返时间使用的相关变量值
+**         : 11.通过用户自定义函数指针，在 tcp 协议头中添加自定义选项数据
+**         : 12.计算待发送数据包的校验和信息
+**         : 13.通过指定的网络接口发送指定的网络数据包，在发送之前会根据传入的参数在负载数据前构建并添
+**         :    加一个 IP 协议头
+** 输	 入: seg - 需要发送的分片数据包
+**         : pcb - 需要发送的分片数据包所属 tcp 协议控制块
+**         : netif - 用来发送数据包的网络接口指针
+** 输	 出: err_t - 发送状态
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static err_t
 tcp_output_segment(struct tcp_seg *seg, struct tcp_pcb *pcb, struct netif *netif)
 {
   err_t err;
   u16_t len;
   u32_t *opts;
+  
 #if TCP_CHECKSUM_ON_COPY
   int seg_chksum_was_swapped = 0;
 #endif
@@ -1759,6 +1962,7 @@ tcp_output_segment(struct tcp_seg *seg, struct tcp_pcb *pcb, struct netif *netif
   LWIP_ASSERT("tcp_output_segment: invalid pcb", pcb != NULL);
   LWIP_ASSERT("tcp_output_segment: invalid netif", netif != NULL);
 
+  /* 判断待发送的 tcp 分片数据包的 pbuf 结构是否有其他地方引用，如果有则直接返回 */
   if (tcp_output_segment_busy(seg)) {
     /* This should not happen: rexmit functions should have checked this.
        However, since this function modifies p->len, we must not continue in this case. */
@@ -1768,9 +1972,13 @@ tcp_output_segment(struct tcp_seg *seg, struct tcp_pcb *pcb, struct netif *netif
 
   /* The TCP header has already been constructed, but the ackno and
    wnd fields remain. */
+  /* 设置待发送的 tcp 分片数据包的应答字序号字段值，因为应答字序号随着接收数据包变化而变化
+   * 所以是动态的，所以待发送的 tcp 分片数据包协议头中的字序号字段值是在发送这个数据包的时
+   * 候根据当前状态而设置，而不是预先设置好 */
   seg->tcphdr->ackno = lwip_htonl(pcb->rcv_nxt);
 
   /* advertise our receive window size in this TCP segment */
+  /* 设置待发送数据包的 tcp 协议头中的窗口大小字段变量值 */
 #if LWIP_WND_SCALE
   if (seg->flags & TF_SEG_OPTS_WND_SCALE) {
     /* The Window field in a SYN segment itself (the only type where we send
@@ -1778,26 +1986,36 @@ tcp_output_segment(struct tcp_seg *seg, struct tcp_pcb *pcb, struct netif *netif
     seg->tcphdr->wnd = lwip_htons(TCPWND_MIN16(pcb->rcv_ann_wnd));
   } else
 #endif /* LWIP_WND_SCALE */
+
   {
     seg->tcphdr->wnd = lwip_htons(TCPWND_MIN16(RCV_WND_SCALE(pcb, pcb->rcv_ann_wnd)));
   }
 
+  /* 设置当前 tcp 协议控制块接收窗口的右边沿位置 */
   pcb->rcv_ann_right_edge = pcb->rcv_nxt + pcb->rcv_ann_wnd;
 
   /* Add any requested options.  NB MSS option is only set on SYN
      packets, so ignore it here */
   /* cast through void* to get rid of alignment warnings */
   opts = (u32_t *)(void *)(seg->tcphdr + 1);
+
+  /* 如果当前 tcp 分片数据包设置了 TF_SEG_OPTS_MSS 标志，则在这个数据包中构建 MSS 选项数据 */
   if (seg->flags & TF_SEG_OPTS_MSS) {
     u16_t mss;
+
+/* 计算当前 tcp 协议控制块的 MMS 最大分片数据包长度 */
 #if TCP_CALCULATE_EFF_SEND_MSS
+    /* 通过当前 tcp mss 和指定网络接口的 mtu 计算到指定目的 IP 地址处的有效 mss */
     mss = tcp_eff_send_mss_netif(TCP_MSS, netif, &pcb->remote_ip);
 #else /* TCP_CALCULATE_EFF_SEND_MSS */
     mss = TCP_MSS;
 #endif /* TCP_CALCULATE_EFF_SEND_MSS */
+
     *opts = TCP_BUILD_MSS_OPTION(mss);
     opts += 1;
   }
+
+/* 如果当前 tcp 分片数据包设置了 TF_SEG_OPTS_TS 标志，则在这个数据包中构建时间戳选项数据 */
 #if LWIP_TCP_TIMESTAMPS
   pcb->ts_lastacksent = pcb->rcv_nxt;
 
@@ -1806,12 +2024,16 @@ tcp_output_segment(struct tcp_seg *seg, struct tcp_pcb *pcb, struct netif *netif
     opts += 3;
   }
 #endif
+
+/* 如果当前 tcp 分片数据包设置了 TF_SEG_OPTS_WND_SCALE 标志，则在这个数据包中构建窗口扩大因子选项数据 */
 #if LWIP_WND_SCALE
   if (seg->flags & TF_SEG_OPTS_WND_SCALE) {
     tcp_build_wnd_scale_option(opts);
     opts += 1;
   }
 #endif
+
+/* 如果当前 tcp 分片数据包设置了 TF_SEG_OPTS_SACK_PERM 标志，则在这个数据包中构建“允许选择确认”选项数据 */
 #if LWIP_TCP_SACK_OUT
   if (seg->flags & TF_SEG_OPTS_SACK_PERM) {
     /* Pad with two NOP options to make everything nicely aligned
@@ -1825,20 +2047,27 @@ tcp_output_segment(struct tcp_seg *seg, struct tcp_pcb *pcb, struct netif *netif
 
   /* Set retransmission timer running if it is not currently enabled
      This must be set before checking the route. */
+  /* 如果当前 tcp 协议控制块的数据包重传定时器没启动，则启动 */
   if (pcb->rtime < 0) {
     pcb->rtime = 0;
   }
 
+  /* 初始化当前 tcp 协议控制块计算收发数据包的往返时间使用的相关变量值 */
   if (pcb->rttest == 0) {
     pcb->rttest = tcp_ticks;
     pcb->rtseq = lwip_ntohl(seg->tcphdr->seqno);
 
     LWIP_DEBUGF(TCP_RTO_DEBUG, ("tcp_output_segment: rtseq %"U32_F"\n", pcb->rtseq));
   }
+  
   LWIP_DEBUGF(TCP_OUTPUT_DEBUG, ("tcp_output_segment: %"U32_F":%"U32_F"\n",
                                  lwip_htonl(seg->tcphdr->seqno), lwip_htonl(seg->tcphdr->seqno) +
                                  seg->len));
 
+  /* seg->p->payload 的值在数据包处于“未发送”的状态下指向的是 tcp 数据包协议头
+   * seg->p->payload 的值在数据包处于“发送但未应答”的状态下指向的是 IP 数据包协议头
+   * 所以这个位置为了兼容数据包重传的使用场景，需要判断并移动 tcp 分片数据包的 pbuf
+   * 负载数据指针位置 */
   len = (u16_t)((u8_t *)seg->tcphdr - (u8_t *)seg->p->payload);
   if (len == 0) {
     /** Exclude retransmitted segments from this count. */
@@ -1852,35 +2081,51 @@ tcp_output_segment(struct tcp_seg *seg, struct tcp_pcb *pcb, struct netif *netif
 
   seg->tcphdr->chksum = 0;
 
+/* 通过用户自定义函数指针，在 tcp 协议头中添加自定义选项数据 */
 #ifdef LWIP_HOOK_TCP_OUT_ADD_TCPOPTS
   opts = LWIP_HOOK_TCP_OUT_ADD_TCPOPTS(seg->p, seg->tcphdr, pcb, opts);
 #endif
+
   LWIP_ASSERT("options not filled", (u8_t *)opts == ((u8_t *)(seg->tcphdr + 1)) + LWIP_TCP_OPT_LENGTH_SEGMENT(seg->flags, pcb));
 
+/* 计算待发送数据包的校验和信息 */
 #if CHECKSUM_GEN_TCP
   IF__NETIF_CHECKSUM_ENABLED(netif, NETIF_CHECKSUM_GEN_TCP) {
+
+/* 如果 TCP_CHECKSUM_ON_COPY=1 表示应用层数据交给 tcp 层协议的时候，已经把应用层数据的
+ * 校验和计算完了，所以我们在 tcp 协议层只需要计算 tcp 协议独有数据的校验和，然后和应用
+ * 层数据的校验和累加到一起就是整个 tcp 分片数据包的校验和 */
 #if TCP_CHECKSUM_ON_COPY
     u32_t acc;
+
 #if TCP_CHECKSUM_ON_COPY_SANITY_CHECK
+    /* 计算带有指定伪协议头信息的指定数据包的校验和，这个函数计算的是整个 tcp 分片数据包的校验和 */
     u16_t chksum_slow = ip_chksum_pseudo(seg->p, IP_PROTO_TCP,
                                          seg->p->tot_len, &pcb->local_ip, &pcb->remote_ip);
 #endif /* TCP_CHECKSUM_ON_COPY_SANITY_CHECK */
+
     if ((seg->flags & TF_SEG_DATA_CHECKSUMMED) == 0) {
       LWIP_ASSERT("data included but not checksummed",
                   seg->p->tot_len == TCPH_HDRLEN_BYTES(seg->tcphdr));
     }
 
     /* rebuild TCP header checksum (TCP header changes for retransmissions!) */
+	/* 计算带有指定伪协议头信息的指定数据包的指定数据长度的校验和，这个函数计算的是 tcp 协议头数据的校验和 */
     acc = ip_chksum_pseudo_partial(seg->p, IP_PROTO_TCP,
                                    seg->p->tot_len, TCPH_HDRLEN_BYTES(seg->tcphdr), &pcb->local_ip, &pcb->remote_ip);
     /* add payload checksum */
+    /* 把计算的 tcp 协议头校验和和应用层数据校验和累加到一起，生成整个 tcp 分片数据包的校验和 */
     if (seg->chksum_swapped) {
       seg_chksum_was_swapped = 1;
       seg->chksum = SWAP_BYTES_IN_WORD(seg->chksum);
       seg->chksum_swapped = 0;
     }
+	
     acc = (u16_t)~acc + seg->chksum;
     seg->tcphdr->chksum = (u16_t)~FOLD_U32T(acc);
+
+/* 校验使用两种不同方式计算的校验和信息是否相同，如果不相同，则以 ip_chksum_pseudo 函数计算的
+ * 整个 tcp 分片数据包的校验和为准 */
 #if TCP_CHECKSUM_ON_COPY_SANITY_CHECK
     if (chksum_slow != seg->tcphdr->chksum) {
       TCP_CHECKSUM_ON_COPY_SANITY_CHECK_FAIL(
@@ -1889,17 +2134,26 @@ tcp_output_segment(struct tcp_seg *seg, struct tcp_pcb *pcb, struct netif *netif
       seg->tcphdr->chksum = chksum_slow;
     }
 #endif /* TCP_CHECKSUM_ON_COPY_SANITY_CHECK */
+
 #else /* TCP_CHECKSUM_ON_COPY */
     seg->tcphdr->chksum = ip_chksum_pseudo(seg->p, IP_PROTO_TCP,
                                            seg->p->tot_len, &pcb->local_ip, &pcb->remote_ip);
 #endif /* TCP_CHECKSUM_ON_COPY */
+
+
   }
 #endif /* CHECKSUM_GEN_TCP */
+
+
+
   TCP_STATS_INC(tcp.xmit);
 
   NETIF_SET_HINTS(netif, &(pcb->netif_hints));
+  
+  /* 通过指定的网络接口发送指定的网络数据包，在发送之前会根据传入的参数在负载数据前构建并添加一个 IP 协议头 */
   err = ip_output_if(seg->p, &pcb->local_ip, &pcb->remote_ip, pcb->ttl,
                      pcb->tos, IP_PROTO_TCP, netif);
+  
   NETIF_RESET_HINTS(netif);
 
 #if TCP_CHECKSUM_ON_COPY
@@ -1921,6 +2175,15 @@ tcp_output_segment(struct tcp_seg *seg, struct tcp_pcb *pcb, struct netif *netif
  *
  * @param pcb the tcp_pcb for which to re-enqueue all unacked segments
  */
+/*********************************************************************************************************
+** 函数名称: tcp_rexmit_rto_prepare
+** 功能描述: 尝试把指定的 tcp 协议控制块的发送但未应答数据包链表上的每一个分片数据包插入到这个
+**         : tcp 协议控制块的未发送数据队里链表头部位置，为数据包重传功能做准备
+** 输	 入: pcb - 要重传数据包的 tcp 协议控制块
+** 输	 出: err_t - 操作状态
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 err_t
 tcp_rexmit_rto_prepare(struct tcp_pcb *pcb)
 {
@@ -1936,33 +2199,45 @@ tcp_rexmit_rto_prepare(struct tcp_pcb *pcb)
      However, give up if any of the unsent pbufs are still referenced by the
      netif driver due to deferred transmission. No point loading the link further
      if it is struggling to flush its buffered writes. */
+  /* 遍历当前 tcp 协议控制块的发送但未应答数据包链表每一个分片数据包，判断是否有被其他地方引用的成员
+   * 如果有，表示可能是因为驱动程序的延迟发送导致的，即数据包应答超时是因为数据包没发送导致的，而不是
+   * 因为发送链路不可达导致的，所以我们还不需要启动数据包重传逻辑 */
   for (seg = pcb->unacked; seg->next != NULL; seg = seg->next) {
     if (tcp_output_segment_busy(seg)) {
       LWIP_DEBUGF(TCP_RTO_DEBUG, ("tcp_rexmit_rto: segment busy\n"));
       return ERR_VAL;
     }
   }
+
+  /* 判断当前 tcp 协议控制块的发送但未应答数据包链表的最后一个分片数据包是否被其他地方引用 */
   if (tcp_output_segment_busy(seg)) {
     LWIP_DEBUGF(TCP_RTO_DEBUG, ("tcp_rexmit_rto: segment busy\n"));
     return ERR_VAL;
   }
+  
   /* concatenate unsent queue after unacked queue */
+  /* 把当前 tcp 协议控制块的发送但未应答数据包链表插入到当前 tcp 协议控制块的未发送数据队里链表头部位置 */
   seg->next = pcb->unsent;
+  
 #if TCP_OVERSIZE_DBGCHECK
   /* if last unsent changed, we need to update unsent_oversize */
   if (pcb->unsent == NULL) {
     pcb->unsent_oversize = seg->oversize_left;
   }
 #endif /* TCP_OVERSIZE_DBGCHECK */
+
   /* unsent queue is the concatenated queue (of unacked, unsent) */
   pcb->unsent = pcb->unacked;
   /* unacked queue is now empty */
   pcb->unacked = NULL;
 
   /* Mark RTO in-progress */
+  /* 设置当前 tcp 协议控制块的“重传超时定时器已经启动”标志 */
   tcp_set_flags(pcb, TF_RTO);
+  
   /* Record the next byte following retransmit */
   pcb->rto_end = lwip_ntohl(seg->tcphdr->seqno) + TCP_TCPLEN(seg);
+  
   /* Don't take any RTT measurements after retransmitting. */
   pcb->rttest = 0;
 
@@ -1976,16 +2251,28 @@ tcp_rexmit_rto_prepare(struct tcp_pcb *pcb)
  *
  * @param pcb the tcp_pcb for which to re-enqueue all unacked segments
  */
+/*********************************************************************************************************
+** 函数名称: tcp_rexmit_rto_commit
+** 功能描述: 尝试把从指定 tcp 协议控制块的发送但未应答数据包链表上移动到 tcp 协议控制块的未发送数据队列
+**         : 中的每一个分片数据包数据发送出去，即启动数据包重传功能
+** 输	 入: pcb - 要重传数据包的 tcp 协议控制块
+** 输	 出: err_t - 操作状态
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 tcp_rexmit_rto_commit(struct tcp_pcb *pcb)
 {
   LWIP_ASSERT("tcp_rexmit_rto_commit: invalid pcb", pcb != NULL);
 
   /* increment number of retransmissions */
+  /* 记录当前 tcp 协议控制块连续启动重传数据包的次数 */
   if (pcb->nrtx < 0xFF) {
     ++pcb->nrtx;
   }
+  
   /* Do the actual retransmission */
+  /* 尝试发送指定 tcp 协议控制块的未发送数据队列中的分片数据包数据 */
   tcp_output(pcb);
 }
 
@@ -1997,6 +2284,15 @@ tcp_rexmit_rto_commit(struct tcp_pcb *pcb)
  *
  * @param pcb the tcp_pcb for which to re-enqueue all unacked segments
  */
+/*********************************************************************************************************
+** 函数名称: tcp_rexmit_rto
+** 功能描述: 尝试把指定 tcp 协议控制块的发送但未应答数据包链表上的每一个分片数据包移动到 tcp 协议控制块
+**         : 的未发送数据队列中，然后尝试把这些数据包发送出去，实现数据包重传功能
+** 输	 入: pcb - 要重传数据包的 tcp 协议控制块
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 tcp_rexmit_rto(struct tcp_pcb *pcb)
 {
@@ -2014,6 +2310,15 @@ tcp_rexmit_rto(struct tcp_pcb *pcb)
  *
  * @param pcb the tcp_pcb for which to retransmit the first unacked segment
  */
+/*********************************************************************************************************
+** 函数名称: tcp_rexmit
+** 功能描述: 尝试把指定 tcp 协议控制块的发送但未应答数据包链表上的“第一个”分片数据包按照字序号升序方式
+**         : 插入到 tcp 协议控制块的未发送数据队列链表的合适位置处
+** 输	 入: pcb - 要重传数据包的 tcp 协议控制块
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 err_t
 tcp_rexmit(struct tcp_pcb *pcb)
 {
@@ -2040,12 +2345,18 @@ tcp_rexmit(struct tcp_pcb *pcb)
   pcb->unacked = seg->next;
 
   cur_seg = &(pcb->unsent);
+
+  /* 为 seg 分片数据包按照字序号升序的方式在当前 tcp 协议控制块的未发送数据队列链表中
+   * 找到合适的位置，cur_seg 记录了未发送数据队列链表中的第一个大于 seg 字序号的分片数据包地址 */
   while (*cur_seg &&
          TCP_SEQ_LT(lwip_ntohl((*cur_seg)->tcphdr->seqno), lwip_ntohl(seg->tcphdr->seqno))) {
     cur_seg = &((*cur_seg)->next );
   }
+
+  /* 把 seg 按字序号升序的方式插入到当前 tcp 协议控制块的未发送数据队列链表合适位置处 */
   seg->next = *cur_seg;
   *cur_seg = seg;
+  
 #if TCP_OVERSIZE
   if (seg->next == NULL) {
     /* the retransmitted segment is last in unsent, so reset unsent_oversize */
@@ -2064,6 +2375,7 @@ tcp_rexmit(struct tcp_pcb *pcb)
   MIB2_STATS_INC(mib2.tcpretranssegs);
   /* No need to call tcp_output: we are always called from tcp_input()
      and thus tcp_output directly returns. */
+     
   return ERR_OK;
 }
 
@@ -2073,6 +2385,17 @@ tcp_rexmit(struct tcp_pcb *pcb)
  *
  * @param pcb the tcp_pcb for which to retransmit the first unacked segment
  */
+/*********************************************************************************************************
+** 函数名称: tcp_rexmit_fast
+** 功能描述: 尝试把指定 tcp 协议控制块的发送但未应答数据包链表上的“第一个”分片数据包按照字序号升序方式
+**         : 插入到 tcp 协议控制块的未发送数据队列链表的合适位置处，并使当前 tcp 协议控制块进入网络拥塞
+**         : 快速恢复状态，同时更新当前 tcp 协议控制块的拥塞窗口和慢启动阈值两个变量值，并复位当前 tcp
+**         : 协议控制块的数据包重传定时器
+** 输	 入: pcb - 要重传数据包的 tcp 协议控制块
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 tcp_rexmit_fast(struct tcp_pcb *pcb)
 {
@@ -2085,12 +2408,18 @@ tcp_rexmit_fast(struct tcp_pcb *pcb)
                  "), fast retransmit %"U32_F"\n",
                  (u16_t)pcb->dupacks, pcb->lastack,
                  lwip_ntohl(pcb->unacked->tcphdr->seqno)));
+
+	/* 尝试把指定 tcp 协议控制块的发送但未应答数据包链表上的“第一个”分片数据包按照字序号升序方式
+     * 插入到 tcp 协议控制块的未发送数据队列链表的合适位置处 */
     if (tcp_rexmit(pcb) == ERR_OK) {
       /* Set ssthresh to half of the minimum of the current
        * cwnd and the advertised window */
+      /* 既然已经开始执行分片数据包重传逻辑，就表示当前没有收到已经发送的分片数据包的应答信息
+	   * 所以就表示当前网络出现了拥塞，*/
       pcb->ssthresh = LWIP_MIN(pcb->cwnd, pcb->snd_wnd) / 2;
 
       /* The minimum value for ssthresh should be 2 MSS */
+	  /* 慢启动阈值不可以小于 2，所以如果上面计算得出的慢启动阈值小于 2，则更新其值为 2 */
       if (pcb->ssthresh < (2U * pcb->mss)) {
         LWIP_DEBUGF(TCP_FR_DEBUG,
                     ("tcp_receive: The minimum value for ssthresh %"TCPWNDSIZE_F
@@ -2099,7 +2428,10 @@ tcp_rexmit_fast(struct tcp_pcb *pcb)
         pcb->ssthresh = 2 * pcb->mss;
       }
 
+      /* 设置当前 tcp 协议控制块的拥塞窗口大小 */
       pcb->cwnd = pcb->ssthresh + 3 * pcb->mss;
+
+	  /* 设置当前 tcp 协议控制块的网络拥塞快速恢复状态标志 */
       tcp_set_flags(pcb, TF_INFR);
 
       /* Reset the retransmission timer to prevent immediate rto retransmissions */
@@ -2163,6 +2495,18 @@ tcp_output_alloc_header_common(u32_t ackno, u16_t optlen, u16_t datalen,
  * @param seqno_be seqno in network byte order (big-endian)
  * @return pbuf with p->payload being the tcp_hdr
  */
+/*********************************************************************************************************
+** 函数名称: tcp_output_alloc_header
+** 功能描述: 为指定的 tcp 协议控制块申请一个指定选项数据长度和负载数据长度的数据包缓冲区，并根据指定
+**         : 参数设置这个数据包协议头的字序号字段值，同时更新接收窗口的右边沿位置
+** 输	 入: pcb - 需要申请数据包缓冲区的 tcp 协议控制块
+**		   : optlen - 需要申请的数据包的选项数据长度
+**		   : datalen - 需要申请的数据包的负载数据长度
+**		   : seqno_be - 需要申请的数据包的字序号值
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static struct pbuf *
 tcp_output_alloc_header(struct tcp_pcb *pcb, u16_t optlen, u16_t datalen,
                         u32_t seqno_be /* already in network byte order */)
@@ -2171,13 +2515,17 @@ tcp_output_alloc_header(struct tcp_pcb *pcb, u16_t optlen, u16_t datalen,
 
   LWIP_ASSERT("tcp_output_alloc_header: invalid pcb", pcb != NULL);
 
+  /* 申请一个指定长度的 PBUF_RAM 类型的 tcp 协议层 pbuf，并通过函数参数指定的协议头数据
+   * 初始化相关协议头结构*/
   p = tcp_output_alloc_header_common(pcb->rcv_nxt, optlen, datalen,
     seqno_be, pcb->local_port, pcb->remote_port, TCP_ACK,
     TCPWND_MIN16(RCV_WND_SCALE(pcb, pcb->rcv_ann_wnd)));
+  
   if (p != NULL) {
     /* If we're sending a packet, update the announced right window edge */
     pcb->rcv_ann_right_edge = pcb->rcv_nxt + pcb->rcv_ann_wnd;
   }
+  
   return p;
 }
 
@@ -2185,6 +2533,7 @@ tcp_output_alloc_header(struct tcp_pcb *pcb, u16_t optlen, u16_t datalen,
 /*********************************************************************************************************
 ** 函数名称: tcp_output_fill_options
 ** 功能描述: 根据指定的选项字段标志填充指定 tcp 协议控制块的指定的 tcp 数据包中的选项字段数据
+** 注     释: 用户可以通过实现自定义函数指针，在 tcp 协议头中添加自定义选项数据
 ** 输	 入: pcb - 需要填充的数据包所属 tcp 协议控制块
 **         : p - 需要填充的 tcp 数据包
 **         : optflags - 需要填充的选项字段标志
@@ -2387,6 +2736,14 @@ tcp_rst(const struct tcp_pcb *pcb, u32_t seqno, u32_t ackno,
  *
  * @param pcb Protocol control block for the TCP connection to send the ACK
  */
+/*********************************************************************************************************
+** 函数名称: tcp_send_empty_ack
+** 功能描述: 向指定的 tcp 协议控制块的对端设备发送一个没有负载数据的应答数据包
+** 输	 入: pcb - 需要发送应答数据包的 tcp 协议控制块
+** 输	 出: err - 发送状态
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 err_t
 tcp_send_empty_ack(struct tcp_pcb *pcb)
 {
@@ -2397,13 +2754,16 @@ tcp_send_empty_ack(struct tcp_pcb *pcb)
 
   LWIP_ASSERT("tcp_send_empty_ack: invalid pcb", pcb != NULL);
 
+/* 如果当前 tcp 协议控制块启用了时间戳选项，则添加时间戳选项控制位标志 */
 #if LWIP_TCP_TIMESTAMPS
   if (pcb->flags & TF_TIMESTAMP) {
     optflags = TF_SEG_OPTS_TS;
   }
 #endif
+
   optlen = LWIP_TCP_OPT_LENGTH_SEGMENT(optflags, pcb);
 
+/* 如果当前 tcp 协议控制块有未发送的选择应答数据没有发送，则添加选择应答选项数据 */
 #if LWIP_TCP_SACK_OUT
   /* For now, SACKs are only sent with empty ACKs */
   if ((num_sacks = tcp_get_num_sacks(pcb, optlen)) > 0) {
@@ -2411,6 +2771,8 @@ tcp_send_empty_ack(struct tcp_pcb *pcb)
   }
 #endif
 
+  /* 为指定的 tcp 协议控制块申请一个指定选项数据长度和负载数据长度的数据包缓冲区，并根据指定
+   * 参数设置这个数据包协议头的字序号字段值，同时更新接收窗口的右边沿位置 */
   p = tcp_output_alloc_header(pcb, optlen, 0, lwip_htonl(pcb->snd_nxt));
   if (p == NULL) {
     /* let tcp_fasttmr retry sending this ACK */
@@ -2418,6 +2780,8 @@ tcp_send_empty_ack(struct tcp_pcb *pcb)
     LWIP_DEBUGF(TCP_OUTPUT_DEBUG, ("tcp_output: (ACK) could not allocate pbuf\n"));
     return ERR_BUF;
   }
+
+  /* 根据指定的选项字段标志填充指定 tcp 协议控制块的指定的 tcp 数据包中的选项字段数据 */
   tcp_output_fill_options(pcb, p, optflags, num_sacks);
 
 #if LWIP_TCP_TIMESTAMPS
@@ -2426,6 +2790,8 @@ tcp_send_empty_ack(struct tcp_pcb *pcb)
 
   LWIP_DEBUGF(TCP_OUTPUT_DEBUG,
               ("tcp_output: sending ACK for %"U32_F"\n", pcb->rcv_nxt));
+
+  /* 把当前 tcp 协议控制块的应答数据包发送到当前 tcp 协议控制块的对端设备处 */
   err = tcp_output_control_segment(pcb, p, &pcb->local_ip, &pcb->remote_ip);
   if (err != ERR_OK) {
     /* let tcp_fasttmr retry sending this ACK */
@@ -2446,6 +2812,14 @@ tcp_send_empty_ack(struct tcp_pcb *pcb)
  *
  * @param pcb the tcp_pcb for which to send a keepalive packet
  */
+/*********************************************************************************************************
+** 函数名称: tcp_keepalive
+** 功能描述: 为指定的 tcp 协议控制块发送一个“保活探测”数据包
+** 输	 入: pcb - 要发送“保活探测”数据包的 tcp 协议控制块
+** 输	 出: err - 发送状态
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 err_t
 tcp_keepalive(struct tcp_pcb *pcb)
 {
@@ -2468,6 +2842,7 @@ tcp_keepalive(struct tcp_pcb *pcb)
                 ("tcp_keepalive: could not allocate memory for pbuf\n"));
     return ERR_MEM;
   }
+  
   tcp_output_fill_options(pcb, p, 0, optlen);
   err = tcp_output_control_segment(pcb, p, &pcb->local_ip, &pcb->remote_ip);
 
@@ -2484,6 +2859,14 @@ tcp_keepalive(struct tcp_pcb *pcb)
  *
  * @param pcb the tcp_pcb for which to send a zero-window probe packet
  */
+/*********************************************************************************************************
+** 函数名称: tcp_zero_window_probe
+** 功能描述: 为指定的 tcp 协议控制块发送一个“窗口探测”数据包
+** 输	 入: pcb - 要发送“窗口探测”数据包的 tcp 协议控制块
+** 输	 出: err - 发送状态
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 err_t
 tcp_zero_window_probe(struct tcp_pcb *pcb)
 {

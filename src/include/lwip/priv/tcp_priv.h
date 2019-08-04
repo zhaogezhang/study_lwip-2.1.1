@@ -97,19 +97,22 @@ err_t            tcp_process_refused_data(struct tcp_pcb *pcb);
  *   than one unsent segment - with lwIP, this can happen although unsent->len < mss)
  * - or if we are in fast-retransmit (TF_INFR)
  */
+/* 根据 Nagle 算法判断指定的 tcp 协议控制块是否可以发送数据 */
 #define tcp_do_output_nagle(tpcb) ((((tpcb)->unacked == NULL) || \
                             ((tpcb)->flags & (TF_NODELAY | TF_INFR)) || \
                             (((tpcb)->unsent != NULL) && (((tpcb)->unsent->next != NULL) || \
                               ((tpcb)->unsent->len >= (tpcb)->mss))) || \
                             ((tcp_sndbuf(tpcb) == 0) || (tcp_sndqueuelen(tpcb) >= TCP_SND_QUEUELEN)) \
                             ) ? 1 : 0)
+                            
 #define tcp_output_nagle(tpcb) (tcp_do_output_nagle(tpcb) ? tcp_output(tpcb) : ERR_OK)
 
-
+/* 当前协议栈 tcp 数据包字序号比较操作宏定义接口 */
 #define TCP_SEQ_LT(a,b)     ((s32_t)((u32_t)(a) - (u32_t)(b)) < 0)
 #define TCP_SEQ_LEQ(a,b)    ((s32_t)((u32_t)(a) - (u32_t)(b)) <= 0)
 #define TCP_SEQ_GT(a,b)     ((s32_t)((u32_t)(a) - (u32_t)(b)) > 0)
 #define TCP_SEQ_GEQ(a,b)    ((s32_t)((u32_t)(a) - (u32_t)(b)) >= 0)
+
 /* is b<=a<=c? */
 #if 0 /* see bug #10548 */
 #define TCP_SEQ_BETWEEN(a,b,c) ((c)-(b) >= (a)-(b))
@@ -152,6 +155,7 @@ err_t            tcp_process_refused_data(struct tcp_pcb *pcb);
 
 #define  TCP_MAXIDLE              TCP_KEEPCNT_DEFAULT * TCP_KEEPINTVL_DEFAULT  /* Maximum KEEPALIVE probe time */
 
+/* 获取指定的 tcp 分片数据包的包长度 */
 #define TCP_TCPLEN(seg) ((seg)->len + (((TCPH_FLAGS((seg)->tcphdr) & (TCP_FIN | TCP_SYN)) != 0) ? 1U : 0U))
 
 /** Flags used on input processing, not on pcb->flags
@@ -255,10 +259,10 @@ struct tcp_seg {
   /* 在把 tcp 分片数据包放入一个队列中的时候，通过这个指针把 tcp 分片数据包链接在一起 */
   struct tcp_seg *next;    /* used when putting segments on a queue */
 
-  /* 表示 tcp 分片数据包的数据（包含 tcp 数据包协议头和负载数据）*/
+  /* 表示 tcp 分片数据包的负载数据起始地址（包含 tcp 数据包协议头和 tcp 数据包负载数据），具体见 tcp_create_segment 函数 */
   struct pbuf *p;          /* buffer containing data + TCP header */
 
-  /* 表示 tcp 分片数据包的数据长度，包括 tcp 协议头和负载数据，但是不包括协议头中的“选项”数据 */
+  /* 表示 tcp 分片数据包的数据长度，包括 tcp 协议头和 tcp 负载数据，但是不包括协议头中的“选项”数据 */
   u16_t len;               /* the TCP length of this segment */
   
 #if TCP_OVERSIZE_DBGCHECK
@@ -286,7 +290,7 @@ struct tcp_seg {
 #define TF_SEG_DATA_CHECKSUMMED (u8_t)0x04U /* ALL data (not the header) is
                                                checksummed into 'chksum' */
 
-/* 表示 tcp 协议头中的窗口扩大因子选项标志 */
+/* 表示当前 tcp 协议头中包含窗口扩大因子选项数据 */
 #define TF_SEG_OPTS_WND_SCALE   (u8_t)0x08U /* Include WND SCALE option (only used in SYN segments) */
 
 /* SACK - select acknowledge */

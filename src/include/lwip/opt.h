@@ -1344,6 +1344,9 @@
  * netif used for a connection and limits the MSS if it would be too big otherwise.
  */
 #if !defined TCP_CALCULATE_EFF_SEND_MSS || defined __DOXYGEN__
+/* 如果 TCP_CALCULATE_EFF_SEND_MSS=1 表示在发送一个数据包到指定目的 IP 地址处之前
+ * 会根据当前协议栈的 tcp mss 和发送数据包到指定目的 IP 地址处的网络接口的 mtu 两
+ * 个变量综合考虑并计算当前可用有效的 mss */
 #define TCP_CALCULATE_EFF_SEND_MSS      1
 #endif
 

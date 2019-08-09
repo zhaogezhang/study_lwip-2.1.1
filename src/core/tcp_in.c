@@ -61,30 +61,57 @@
 
 #include <string.h>
 
+/* 包含用户实现的自定义钩子函数头文件 */
 #ifdef LWIP_HOOK_FILENAME
 #include LWIP_HOOK_FILENAME
 #endif
 
 /** Initial CWND calculation as defined RFC 2581 */
+/* 表示当前协议栈默认情况下使用的拥塞窗口值 */
 #define LWIP_TCP_CALC_INITIAL_CWND(mss) ((tcpwnd_size_t)LWIP_MIN((4U * (mss)), LWIP_MAX((2U * (mss)), 4380U)))
 
 /* These variables are global to all functions involved in the input
    processing of TCP segments. They are set by the tcp_input()
    function. */
+   
+/* 表示当前接收到的 tcp 分片数据包 */
 static struct tcp_seg inseg;
+
+/* 表示当前接收到的 tcp 分片数据包的 tcp 协议头指针 */
 static struct tcp_hdr *tcphdr;
+
+/* 表示当前接收到的 tcp 分片数据包的 tcp 协议头中的选项数据长度 */
 static u16_t tcphdr_optlen;
+
+/* 表示当前接收到的 tcp 分片数据包在第一个 pbuf 中存储的选项数据包字节长度
+ *（因为 tcp 分片数据包的选项数据可能横跨多个 pbuf）*/
 static u16_t tcphdr_opt1len;
+
+/* 在当前接收到的 tcp 分片数据包的选项数据横跨两个 pbuf 的时候，表示在第二个
+ * pbuf 中的选项数据的起始地址 */
 static u8_t *tcphdr_opt2;
+
 static u16_t tcp_optidx;
+
+/* 在当前接收到的 tcp 分片数据包的字序号和应答字序号 */
 static u32_t seqno, ackno;
+
+/* 统计当前接收到的应答数据包应答的数据块的字节数 */
 static tcpwnd_size_t recv_acked;
+
+/* 在当前接收到的 tcp 分片数据包的所有负载数据长度（不包括常规协议头和选项数据）*/
 static u16_t tcplen;
+
+/* 在当前接收到的 tcp 分片数据包的 flags 字段值 */
 static u8_t flags;
 
+/* 表示当前接收到的、要分发到应用层的 tcp 分片数据包的 flags 标志信息 */
 static u8_t recv_flags;
+
+/* 表示当前接收到的、要分发到应用层的 tcp 分片数据包 */
 static struct pbuf *recv_data;
 
+/* 表示用来处理当前接收到的 tcp 分片数据包的 tcp 协议控制块 */
 struct tcp_pcb *tcp_input_pcb;
 
 /* Forward declarations. */
@@ -113,16 +140,54 @@ static void tcp_remove_sacks_gt(struct tcp_pcb *pcb, u32_t seq);
  *
  * @param p received TCP segment to process (p->payload pointing to the TCP header)
  * @param inp network interface on which this segment was received
- */
+ */ 
+/*********************************************************************************************************
+** 函数名称: tcp_input
+** 功能描述: 处理有 ip 协议层分发到 tcp 协议层的数据包，具体操作逻辑如下：
+**         : 1. 校验当前接收到的 tcp 分片数据包的长度是否合法
+**         : 2. 判断当前接收到的 tcp 分片数据包是否是多播或者广播数据包，如果是，则直接丢弃
+**         : 3. 校验当前接收到的 tcp 分片数据包的校验和是否合法
+**         : 4. 校验当前接收到的 tcp 分片数据包的 tcp 协议头长度是否合法（包括 tcp 常规协议头和选项数据字段）
+**         : 5. 判断当前接收到的 tcp 分片数据包的选项数据是否全部存储在第一个 pbuf 中，如果是则直接把 
+**         :    pbuf 的 payload 指针移动到负载数据位置处，如果当前接收的 tcp 分片数据包的选项数据没全
+**         :    部存储在第一个 pbuf 中，而是有部分选项数据存储在第二个 pbuf 中，则需要把 pbuf 的 payload 
+**         :    指针移动到第二个 pbuf 中的对应位置处，指向当前接收到的 tcp 分片数据包的负载数据，并记
+**         :    录相关变量 
+**         : 6. 把接收到的 tcp 分片数据包的协议头中的数据从网络字节序转换成本地字节序并记录到相关变量中 
+**         : 7. 分别遍历当前系统内所有处于 active 状态的 tcp 协议控制块链表上的每一个 tcp 协议控制块尝
+**         :    试找到和当前接收到的 tcp 分片数据包匹配的 tcp 协议控制块
+**         :    a. 如果“没找到”和当前接收到的 tcp 分片数据包匹配的 active 状态的 tcp 协议控制块则遍历当前
+**         :       系统内所有处于 TIME-WAIT 状态的 tcp 协议控制块链表上的每一个 tcp 协议控制块，尝试找到和
+**         :       当前接收到的 tcp 分片数据包匹配的处于 TIME-WAIT 状态的 tcp 协议控制块并通过找到的 tcp
+**         :       协议控制块处理接收到的 tcp 分片数据包
+**         :    b. 如果在当前系统的 tcp_active_pcbs 和 tcp_tw_pcbs tcp 协议控制块链表中都没有找到和当前接收
+**         :       到的 tcp 分片数据包匹配的 tcp 协议控制块，则遍历当前系统内处于 listen 状态的 tcp 协议控
+**         :       制块链表上的每一个 tcp 协议控制块，尝试找到和当前接收到的 tcp 分片数据包匹配的处于 listen
+**         :       状态的 tcp 协议控制块并通过找到的 tcp 协议控制块处理接收到的 tcp 分片数据包
+**         :    c. 用户实现的自定义接口函数，用来拦截当前协议栈接收到的所有 tcp 分片数据包
+**         :    d. 如果“找到了”和当前接收到的 tcp 分片数据包匹配的 active 状态的 tcp 协议控制块，则通过找到
+**         :       的 tcp 协议控制块处理接收到的 tcp 分片数据包
+**         : 
+**         : 
+**         : 
+**         : 
+** 输	 入: p - 接收到的 tcp 分片数据包
+**         : inp - 接收到 tcp 分配数据包的网络接口指针
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 tcp_input(struct pbuf *p, struct netif *inp)
 {
   struct tcp_pcb *pcb, *prev;
   struct tcp_pcb_listen *lpcb;
+  
 #if SO_REUSE
   struct tcp_pcb *lpcb_prev = NULL;
   struct tcp_pcb_listen *lpcb_any = NULL;
 #endif /* SO_REUSE */
+
   u8_t hdrlen_bytes;
   err_t err;
 
@@ -135,6 +200,7 @@ tcp_input(struct pbuf *p, struct netif *inp)
   TCP_STATS_INC(tcp.recv);
   MIB2_STATS_INC(mib2.tcpinsegs);
 
+  /* 获取当前接收到的 tcp 分片数据包的 tcp 协议头指针 */
   tcphdr = (struct tcp_hdr *)p->payload;
 
 #if TCP_INPUT_DEBUG
@@ -142,6 +208,7 @@ tcp_input(struct pbuf *p, struct netif *inp)
 #endif
 
   /* Check that TCP header fits in payload */
+  /* 校验当前接收到的 tcp 分片数据包的长度是否合法 */
   if (p->len < TCP_HLEN) {
     /* drop short packets */
     LWIP_DEBUGF(TCP_INPUT_DEBUG, ("tcp_input: short packet (%"U16_F" bytes) discarded\n", p->tot_len));
@@ -150,12 +217,14 @@ tcp_input(struct pbuf *p, struct netif *inp)
   }
 
   /* Don't even process incoming broadcasts/multicasts. */
+  /* 判断当前接收到的 tcp 分片数据包是否是多播或者广播数据包，如果是，则直接丢弃 */
   if (ip_addr_isbroadcast(ip_current_dest_addr(), ip_current_netif()) ||
       ip_addr_ismulticast(ip_current_dest_addr())) {
     TCP_STATS_INC(tcp.proterr);
     goto dropped;
   }
 
+/* 校验当前接收到的 tcp 分片数据包的校验和是否合法 */
 #if CHECKSUM_CHECK_TCP
   IF__NETIF_CHECKSUM_ENABLED(inp, NETIF_CHECKSUM_CHECK_TCP) {
     /* Verify TCP checksum. */
@@ -172,6 +241,7 @@ tcp_input(struct pbuf *p, struct netif *inp)
 #endif /* CHECKSUM_CHECK_TCP */
 
   /* sanity-check header length */
+  /* 校验当前接收到的 tcp 分片数据包的 tcp 协议头长度是否合法（包括 tcp 常规协议头和选项数据字段）*/
   hdrlen_bytes = TCPH_HDRLEN_BYTES(tcphdr);
   if ((hdrlen_bytes < TCP_HLEN) || (hdrlen_bytes > p->tot_len)) {
     LWIP_DEBUGF(TCP_INPUT_DEBUG, ("tcp_input: invalid header length (%"U16_F")\n", (u16_t)hdrlen_bytes));
@@ -181,8 +251,15 @@ tcp_input(struct pbuf *p, struct netif *inp)
 
   /* Move the payload pointer in the pbuf so that it points to the
      TCP data instead of the TCP header. */
+  /* 获取当前接收到的 tcp 分片数据包的 tcp 协议头中的选项数据长度 */
   tcphdr_optlen = (u16_t)(hdrlen_bytes - TCP_HLEN);
+  
   tcphdr_opt2 = NULL;
+
+  /* 判断当前接收到的 tcp 分片数据包的选项数据是否全部存储在第一个 pbuf 中，如果是则直接把 pbuf 的
+   * payload 指针移动到负载数据位置处，如果当前接收的 tcp 分片数据包的选项数据没全部存储在第一个 
+   * pbuf 中，而是有部分选项数据存储在第二个 pbuf 中，则需要把 pbuf 的 payload 指针移动到第二个
+   * pbuf 中的对应位置处，指向当前接收到的 tcp 分片数据包的负载数据，并记录相关变量 */
   if (p->len >= hdrlen_bytes) {
     /* all options are in the first pbuf */
     tcphdr_opt1len = tcphdr_optlen;
@@ -205,6 +282,7 @@ tcp_input(struct pbuf *p, struct netif *inp)
     pbuf_remove_header(p, tcphdr_opt1len);
 
     /* check that the options fit in the second pbuf */
+	/* 目前协议栈的 tcp 选项数据最多只能横跨两个 pbuf */
     if (opt2len > p->next->len) {
       /* drop short packets */
       LWIP_DEBUGF(TCP_INPUT_DEBUG, ("tcp_input: options overflow second pbuf (%"U16_F" bytes)\n", p->next->len));
@@ -225,6 +303,7 @@ tcp_input(struct pbuf *p, struct netif *inp)
   }
 
   /* Convert fields in TCP header to host byte order. */
+  /* 把接收到的 tcp 分片数据包的协议头中的数据从网络字节序转换成本地字节序并记录到相关变量中 */
   tcphdr->src = lwip_ntohs(tcphdr->src);
   tcphdr->dest = lwip_ntohs(tcphdr->dest);
   seqno = tcphdr->seqno = lwip_ntohl(tcphdr->seqno);
@@ -233,6 +312,7 @@ tcp_input(struct pbuf *p, struct netif *inp)
 
   flags = TCPH_FLAGS(tcphdr);
   tcplen = p->tot_len;
+  
   if (flags & (TCP_FIN | TCP_SYN)) {
     tcplen++;
     if (tcplen < p->tot_len) {
@@ -247,18 +327,26 @@ tcp_input(struct pbuf *p, struct netif *inp)
      for an active connection. */
   prev = NULL;
 
+  /* 分别遍历当前系统内所有处于 active 状态的 tcp 协议控制块链表上的每一个 tcp 协议控制块
+   * 尝试找到和当前接收到的 tcp 分片数据包匹配的 tcp 协议控制块 */
   for (pcb = tcp_active_pcbs; pcb != NULL; pcb = pcb->next) {
+  	
     LWIP_ASSERT("tcp_input: active pcb->state != CLOSED", pcb->state != CLOSED);
     LWIP_ASSERT("tcp_input: active pcb->state != TIME-WAIT", pcb->state != TIME_WAIT);
     LWIP_ASSERT("tcp_input: active pcb->state != LISTEN", pcb->state != LISTEN);
 
     /* check if PCB is bound to specific netif */
+	/* 判断当前遍历的 tcp 协议控制块是否绑定到指定的网络接口，如果绑定了，则判断是否和
+	 * 接收到当前 tcp 分片数据包的网络接口匹配，如果不匹配则遍历下一个 tcp 协议控制块 */
     if ((pcb->netif_idx != NETIF_NO_INDEX) &&
         (pcb->netif_idx != netif_get_index(ip_data.current_input_netif))) {
       prev = pcb;
       continue;
     }
 
+    /* 如果当前接收到的 tcp 分片数据包是发送给当前遍历的 tcp 协议控制块的数据包，则把
+	 * 当前 tcp 协议控制块移动到全局协议控制块链表的头部，这样在同一个 tcp 连接上连续
+	 * 收发数据的时候可以提高查找效率，然后退出当前循环 */
     if (pcb->remote_port == tcphdr->src &&
         pcb->local_port == tcphdr->dest &&
         ip_addr_cmp(&pcb->remote_ip, ip_current_src_addr()) &&
@@ -274,24 +362,33 @@ tcp_input(struct pbuf *p, struct netif *inp)
       } else {
         TCP_STATS_INC(tcp.cachehit);
       }
+	  
       LWIP_ASSERT("tcp_input: pcb->next != pcb (after cache)", pcb->next != pcb);
       break;
     }
     prev = pcb;
   }
 
+  /* 如果“没找到”和当前接收到的 tcp 分片数据包匹配的 active 状态的 tcp 协议控制块
+   * 则遍历当前系统内所有处于 TIME-WAIT 状态的 tcp 协议控制块链表上的每一个 tcp 
+   * 协议控制块，尝试找到和当前接收到的 tcp 分片数据包匹配的处于 TIME-WAIT 状态
+   * 的 tcp 协议控制块并通过找到的 tcp 协议控制块处理接收到的 tcp 分片数据包 */
   if (pcb == NULL) {
     /* If it did not go to an active connection, we check the connections
        in the TIME-WAIT state. */
     for (pcb = tcp_tw_pcbs; pcb != NULL; pcb = pcb->next) {
       LWIP_ASSERT("tcp_input: TIME-WAIT pcb->state == TIME-WAIT", pcb->state == TIME_WAIT);
 
-      /* check if PCB is bound to specific netif */
+      /* check if PCB is bound to specific netif */	
+	  /* 判断当前遍历的 tcp 协议控制块是否绑定到指定的网络接口，如果绑定了，则判断是否和
+	   * 接收到当前 tcp 分片数据包的网络接口匹配，如果不匹配则遍历下一个 tcp 协议控制块 */
       if ((pcb->netif_idx != NETIF_NO_INDEX) &&
           (pcb->netif_idx != netif_get_index(ip_data.current_input_netif))) {
         continue;
       }
 
+	  /* 如果当前接收到的 tcp 分片数据包是发送给当前遍历的 tcp 协议控制块的数据包，则把
+	   * 当前接收到的 tcp 分片数据包分发给用户实现的自定义钩子函数中，*/
       if (pcb->remote_port == tcphdr->src &&
           pcb->local_port == tcphdr->dest &&
           ip_addr_cmp(&pcb->remote_ip, ip_current_src_addr()) &&
@@ -300,13 +397,17 @@ tcp_input(struct pbuf *p, struct netif *inp)
            of the list since we are not very likely to receive that
            many segments for connections in TIME-WAIT. */
         LWIP_DEBUGF(TCP_INPUT_DEBUG, ("tcp_input: packed for TIME_WAITing connection.\n"));
+
+/* 用户实现的自定义接口函数，用来拦截当前协议栈接收到的所有 tcp 分片数据包 */
 #ifdef LWIP_HOOK_TCP_INPACKET_PCB
         if (LWIP_HOOK_TCP_INPACKET_PCB(pcb, tcphdr, tcphdr_optlen, tcphdr_opt1len,
                                        tcphdr_opt2, p) == ERR_OK)
 #endif
         {
+          /* 处理处于 TIME_WAIT 状态的 tcp 协议控制块接收到的 tcp 分片数据包 */
           tcp_timewait_input(pcb);
         }
+
         pbuf_free(p);
         return;
       }
@@ -314,41 +415,72 @@ tcp_input(struct pbuf *p, struct netif *inp)
 
     /* Finally, if we still did not get a match, we check all PCBs that
        are LISTENing for incoming connections. */
+    /* 如果在当前系统的 tcp_active_pcbs 和 tcp_tw_pcbs tcp 协议控制块链表中都没有找到和当前
+	 * 接收到的 tcp 分片数据包匹配的 tcp 协议控制块，则遍历当前系统内处于 listen 状态的 tcp 
+     * 协议控制块链表上的每一个 tcp 协议控制块，尝试找到和当前接收到的 tcp 分片数据包匹配的
+     * 处于 listen 状态的 tcp 协议控制块并通过找到的 tcp 协议控制块处理接收到的 tcp 分片数据包 */
     prev = NULL;
     for (lpcb = tcp_listen_pcbs.listen_pcbs; lpcb != NULL; lpcb = lpcb->next) {
+		
       /* check if PCB is bound to specific netif */
+	  /* 判断当前遍历的 tcp 协议控制块是否绑定到指定的网络接口，如果绑定了，则判断是否和
+	   * 接收到当前 tcp 分片数据包的网络接口匹配，如果不匹配则遍历下一个 tcp 协议控制块 */
       if ((lpcb->netif_idx != NETIF_NO_INDEX) &&
           (lpcb->netif_idx != netif_get_index(ip_data.current_input_netif))) {
         prev = (struct tcp_pcb *)lpcb;
         continue;
       }
 
+      /* 判断接收到的 tcp 分片数据包的目的端口号和当前协议控制块的本地端口号是否匹配 */
       if (lpcb->local_port == tcphdr->dest) {
+
+	    /* 判断当前 tcp 协议控制块的本地 IP 地址类型是否同时支持 IPv4 和 IPv6  */
         if (IP_IS_ANY_TYPE_VAL(lpcb->local_ip)) {
+			
           /* found an ANY TYPE (IPv4/IPv6) match */
+		  /* 表示当前 tcp 协议控制块的 ip 地址为 “ANY TYPE” 且当前接收到的 tcp 分片数据包的
+		   * 目的端口号和当前 tcp 协议控制块的本地端口号匹配，则直接退出当前循环 */
+		
 #if SO_REUSE
           lpcb_any = lpcb;
           lpcb_prev = prev;
 #else /* SO_REUSE */
           break;
 #endif /* SO_REUSE */
+
+ 		/* 判断指定的 IP（IPv4 or IPv6）地址类型和指定的协议控制块的 local_ip 地址类型是否匹配 */
         } else if (IP_ADDR_PCB_VERSION_MATCH_EXACT(lpcb, ip_current_dest_addr())) {
+
+		  /* 判断接收到的 tcp 分片数据包的目的 ip 地址和当前 tcp 协议控制块的本地 ip 地址是否匹配 */
           if (ip_addr_cmp(&lpcb->local_ip, ip_current_dest_addr())) {
+		  	
             /* found an exact match */
+			/* 表示当前 tcp 协议控制块的本地 ip 地址和本地端口号与当前接收到的 tcp 分片数据包的
+			 * 目的 ip 地址和目的端口号都匹配，则直接退出当前循环 */
+			 
             break;
           } else if (ip_addr_isany(&lpcb->local_ip)) {
-            /* found an ANY-match */
+          
+            /* found an ANY-match */		  
+			/* 表示当前 tcp 协议控制块的 ip 地址为 “ANY ADDR” 且当前接收到的 tcp 分片数据包的
+			 * 目的端口号和当前 tcp 协议控制块的本地端口号匹配，则直接退出当前循环 */
+		  
 #if SO_REUSE
             lpcb_any = lpcb;
             lpcb_prev = prev;
 #else /* SO_REUSE */
             break;
 #endif /* SO_REUSE */
+
           }
         }
       }
+	  
       prev = (struct tcp_pcb *)lpcb;
     }
+
+/* 在启用 SO_REUSEADDR socket 选项时，优先使用本地 ip 地址和本地端口号与当前接收到的 
+ * tcp 分片数据包的目的 ip 地址和目的端口号都匹配的 tcp 协议控制块 */
 #if SO_REUSE
     /* first try specific local IP */
     if (lpcb == NULL) {
@@ -357,10 +489,14 @@ tcp_input(struct pbuf *p, struct netif *inp)
       prev = lpcb_prev;
     }
 #endif /* SO_REUSE */
+
     if (lpcb != NULL) {
       /* Move this PCB to the front of the list so that subsequent
          lookups will be faster (we exploit locality in TCP segment
-         arrivals). */
+         arrivals). */         
+	  /* 如果在当前系统内处于 listen 状态的 tcp 协议控制块链表上找到了和当前接收到的 tcp 分片
+	   * 数据包匹配的 tcp 协议控制块的数据包，则把这个匹配的 tcp 协议控制块移动到全局协议控制
+	   * 块链表的头部，这样在同一个 tcp 连接上连续收发数据的时候可以提高查找效率 */
       if (prev != NULL) {
         ((struct tcp_pcb_listen *)prev)->next = lpcb->next;
         /* our successor is the remainder of the listening list */
@@ -372,13 +508,18 @@ tcp_input(struct pbuf *p, struct netif *inp)
       }
 
       LWIP_DEBUGF(TCP_INPUT_DEBUG, ("tcp_input: packed for LISTENing connection.\n"));
+
+/* 用户实现的自定义接口函数，用来拦截当前协议栈接收到的所有 tcp 分片数据包 */
 #ifdef LWIP_HOOK_TCP_INPACKET_PCB
       if (LWIP_HOOK_TCP_INPACKET_PCB((struct tcp_pcb *)lpcb, tcphdr, tcphdr_optlen,
                                      tcphdr_opt1len, tcphdr_opt2, p) == ERR_OK)
 #endif
+
       {
+        /* 处理处于 liste 状态的 tcp 协议控制块接收到的 SYN 或者 ACK 分片数据包 */
         tcp_listen_input(lpcb);
       }
+
       pbuf_free(p);
       return;
     }
@@ -390,7 +531,7 @@ tcp_input(struct pbuf *p, struct netif *inp)
   LWIP_DEBUGF(TCP_INPUT_DEBUG, ("-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n"));
 #endif /* TCP_INPUT_DEBUG */
 
-
+/* 用户实现的自定义接口函数，用来拦截当前协议栈接收到的所有 tcp 分片数据包 */
 #ifdef LWIP_HOOK_TCP_INPACKET_PCB
   if ((pcb != NULL) && LWIP_HOOK_TCP_INPACKET_PCB(pcb, tcphdr, tcphdr_optlen,
       tcphdr_opt1len, tcphdr_opt2, p) != ERR_OK) {
@@ -398,13 +539,18 @@ tcp_input(struct pbuf *p, struct netif *inp)
     return;
   }
 #endif
+
+  /* 如果“找到了”和当前接收到的 tcp 分片数据包匹配的 active 状态的 tcp 协议控制块
+   * 则处理接收到的 tcp 分片数据包 */
   if (pcb != NULL) {
     /* The incoming segment belongs to a connection. */
+  
 #if TCP_INPUT_DEBUG
     tcp_debug_print_state(pcb->state);
 #endif /* TCP_INPUT_DEBUG */
 
     /* Set up a tcp_seg structure. */
+    /* 把从 ip 层协议分发上来的 pbuf 格式数据包封装成 tcp 层协议的分片数据包格式数据包 */
     inseg.next = NULL;
     inseg.len = p->tot_len;
     inseg.p = p;
@@ -419,23 +565,34 @@ tcp_input(struct pbuf *p, struct netif *inp)
     }
 
     /* If there is data which was previously "refused" by upper layer */
+	/* 如果当前 tcp 协议控制块中包含应用未处理的 refused 数据，则先处理这些 refused 数据 */
     if (pcb->refused_data != NULL) {
+	  /* 处理指定 tcp 协议控制块未处理的 refused 数据，尝试把数据分发到应用层协议中 */
       if ((tcp_process_refused_data(pcb) == ERR_ABRT) ||
           ((pcb->refused_data != NULL) && (tcplen > 0))) {
         /* pcb has been aborted or refused data is still refused and the new
            segment contains data */
+        /* 如果当前 tcp 协议控制块的接收窗口为 0 并且当前接收到 tcp 分片数据包包含负载数据
+		 * 表示接收到的 tcp 分片数据包是个“零窗口”探测数据包 */
         if (pcb->rcv_ann_wnd == 0) {
           /* this is a zero-window probe, we respond to it with current RCV.NXT
           and drop the data segment */
+          /* 向指定的 tcp 协议控制块的对端设备发送一个没有负载数据的应答数据包（直接发送数据包到 IP 层） */
           tcp_send_empty_ack(pcb);
         }
+		
         TCP_STATS_INC(tcp.drop);
         MIB2_STATS_INC(mib2.tcpinerrs);
         goto aborted;
       }
     }
+	
+	/* 记录处理当前接收到的 tcp 分片数据包的 tcp 协议控制块 */
     tcp_input_pcb = pcb;
+
+	/* 根据当前 tcp 协议控制块状态执行相应的数据包处理逻辑，实现了 tcp 状态机功能 */
     err = tcp_process(pcb);
+	
     /* A return value of ERR_ABRT means that tcp_abort() was called
        and that the pcb has been freed. If so, we don't do anything. */
     if (err != ERR_ABRT) {
@@ -444,6 +601,8 @@ tcp_input(struct pbuf *p, struct netif *inp)
            end. We then call the error callback to inform the
            application that the connection is dead before we
            deallocate the PCB. */
+        /* 如果当前接收到的 tcp 分片数据是 reset 数据包，则通过回调函数通知应用层，并把相应的 tcp 协议控制块
+         * 从全局 active tcp 协议控制块链表中移除，然后释放接收到的 tcp 分片数据包占用的 pbuf 内存空间 */
         TCP_EVENT_ERR(pcb->state, pcb->errf, pcb->callback_arg, ERR_RST);
         tcp_pcb_remove(&tcp_active_pcbs, pcb);
         tcp_free(pcb);
@@ -454,6 +613,7 @@ tcp_input(struct pbuf *p, struct netif *inp)
            now. */
         if (recv_acked > 0) {
           u16_t acked16;
+		  
 #if LWIP_WND_SCALE
           /* recv_acked is u32_t but the sent callback only takes a u16_t,
              so we might have to call it multiple times. */
@@ -462,133 +622,149 @@ tcp_input(struct pbuf *p, struct netif *inp)
             acked16 = (u16_t)LWIP_MIN(acked, 0xffffu);
             acked -= acked16;
 #else
-          {
-            acked16 = recv_acked;
+            {
+              acked16 = recv_acked;
 #endif
-            TCP_EVENT_SENT(pcb, (u16_t)acked16, err);
-            if (err == ERR_ABRT) {
-              goto aborted;
+
+              TCP_EVENT_SENT(pcb, (u16_t)acked16, err);
+              if (err == ERR_ABRT) {
+                goto aborted;
+              }
             }
+            recv_acked = 0;
           }
-          recv_acked = 0;
-        }
-        if (tcp_input_delayed_close(pcb)) {
-          goto aborted;
-        }
+		  
+          if (tcp_input_delayed_close(pcb)) {
+            goto aborted;
+          }
+		
 #if TCP_QUEUE_OOSEQ && LWIP_WND_SCALE
-        while (recv_data != NULL) {
-          struct pbuf *rest = NULL;
-          pbuf_split_64k(recv_data, &rest);
+          while (recv_data != NULL) {
+            struct pbuf *rest = NULL;
+            pbuf_split_64k(recv_data, &rest);
 #else /* TCP_QUEUE_OOSEQ && LWIP_WND_SCALE */
-        if (recv_data != NULL) {
+            if (recv_data != NULL) {
 #endif /* TCP_QUEUE_OOSEQ && LWIP_WND_SCALE */
 
-          LWIP_ASSERT("pcb->refused_data == NULL", pcb->refused_data == NULL);
-          if (pcb->flags & TF_RXCLOSED) {
-            /* received data although already closed -> abort (send RST) to
-               notify the remote host that not all data has been processed */
-            pbuf_free(recv_data);
+              LWIP_ASSERT("pcb->refused_data == NULL", pcb->refused_data == NULL);
+              if (pcb->flags & TF_RXCLOSED) {
+                /* received data although already closed -> abort (send RST) to
+                   notify the remote host that not all data has been processed */
+                pbuf_free(recv_data);
+			
 #if TCP_QUEUE_OOSEQ && LWIP_WND_SCALE
-            if (rest != NULL) {
-              pbuf_free(rest);
-            }
+                if (rest != NULL) {
+                  pbuf_free(rest);
+                }
 #endif /* TCP_QUEUE_OOSEQ && LWIP_WND_SCALE */
-            tcp_abort(pcb);
-            goto aborted;
-          }
 
-          /* Notify application that data has been received. */
-          TCP_EVENT_RECV(pcb, recv_data, ERR_OK, err);
-          if (err == ERR_ABRT) {
-#if TCP_QUEUE_OOSEQ && LWIP_WND_SCALE
-            if (rest != NULL) {
-              pbuf_free(rest);
-            }
-#endif /* TCP_QUEUE_OOSEQ && LWIP_WND_SCALE */
-            goto aborted;
-          }
+                tcp_abort(pcb);
+                goto aborted;
+              }
 
-          /* If the upper layer can't receive this data, store it */
-          if (err != ERR_OK) {
+              /* Notify application that data has been received. */
+              TCP_EVENT_RECV(pcb, recv_data, ERR_OK, err);
+              if (err == ERR_ABRT) {
+		  	
 #if TCP_QUEUE_OOSEQ && LWIP_WND_SCALE
-            if (rest != NULL) {
-              pbuf_cat(recv_data, rest);
-            }
+                if (rest != NULL) {
+                  pbuf_free(rest);
+                }
 #endif /* TCP_QUEUE_OOSEQ && LWIP_WND_SCALE */
-            pcb->refused_data = recv_data;
-            LWIP_DEBUGF(TCP_INPUT_DEBUG, ("tcp_input: keep incoming packet, because pcb is \"full\"\n"));
-#if TCP_QUEUE_OOSEQ && LWIP_WND_SCALE
-            break;
-          } else {
-            /* Upper layer received the data, go on with the rest if > 64K */
-            recv_data = rest;
-#endif /* TCP_QUEUE_OOSEQ && LWIP_WND_SCALE */
-          }
-        }
 
-        /* If a FIN segment was received, we call the callback
-           function with a NULL buffer to indicate EOF. */
-        if (recv_flags & TF_GOT_FIN) {
-          if (pcb->refused_data != NULL) {
-            /* Delay this if we have refused data. */
-            pcb->refused_data->flags |= PBUF_FLAG_TCP_FIN;
-          } else {
-            /* correct rcv_wnd as the application won't call tcp_recved()
-               for the FIN's seqno */
-            if (pcb->rcv_wnd != TCP_WND_MAX(pcb)) {
-              pcb->rcv_wnd++;
+                goto aborted;
+              }
+
+              /* If the upper layer can't receive this data, store it */
+              if (err != ERR_OK) {
+		  	
+#if TCP_QUEUE_OOSEQ && LWIP_WND_SCALE
+                if (rest != NULL) {
+                  pbuf_cat(recv_data, rest);
+                }
+#endif /* TCP_QUEUE_OOSEQ && LWIP_WND_SCALE */
+
+                pcb->refused_data = recv_data;
+                LWIP_DEBUGF(TCP_INPUT_DEBUG, ("tcp_input: keep incoming packet, because pcb is \"full\"\n"));
+			
+#if TCP_QUEUE_OOSEQ && LWIP_WND_SCALE
+                break;
+              } else {
+                /* Upper layer received the data, go on with the rest if > 64K */
+                recv_data = rest;
+#endif /* TCP_QUEUE_OOSEQ && LWIP_WND_SCALE */
+
+              }
             }
-            TCP_EVENT_CLOSED(pcb, err);
-            if (err == ERR_ABRT) {
+
+            /* If a FIN segment was received, we call the callback
+               function with a NULL buffer to indicate EOF. */
+            if (recv_flags & TF_GOT_FIN) {
+              if (pcb->refused_data != NULL) {
+                /* Delay this if we have refused data. */
+                pcb->refused_data->flags |= PBUF_FLAG_TCP_FIN;
+              } else {
+                /* correct rcv_wnd as the application won't call tcp_recved()
+                   for the FIN's seqno */
+                if (pcb->rcv_wnd != TCP_WND_MAX(pcb)) {
+                  pcb->rcv_wnd++;
+                }
+			
+                TCP_EVENT_CLOSED(pcb, err);
+                if (err == ERR_ABRT) {
+                  goto aborted;
+                }
+              }
+            }
+
+            tcp_input_pcb = NULL;
+
+		    if (tcp_input_delayed_close(pcb)) {
               goto aborted;
             }
-          }
-        }
-
-        tcp_input_pcb = NULL;
-        if (tcp_input_delayed_close(pcb)) {
-          goto aborted;
-        }
-        /* Try to send something out. */
-        tcp_output(pcb);
+		
+            /* Try to send something out. */
+            tcp_output(pcb);
+		
 #if TCP_INPUT_DEBUG
 #if TCP_DEBUG
-        tcp_debug_print_state(pcb->state);
+            tcp_debug_print_state(pcb->state);
 #endif /* TCP_DEBUG */
 #endif /* TCP_INPUT_DEBUG */
-      }
-    }
-    /* Jump target if pcb has been aborted in a callback (by calling tcp_abort()).
-       Below this line, 'pcb' may not be dereferenced! */
+
+          }
+        }
+        /* Jump target if pcb has been aborted in a callback (by calling tcp_abort()).
+           Below this line, 'pcb' may not be dereferenced! */
 aborted:
-    tcp_input_pcb = NULL;
-    recv_data = NULL;
+        tcp_input_pcb = NULL;
+        recv_data = NULL;
 
-    /* give up our reference to inseg.p */
-    if (inseg.p != NULL) {
-      pbuf_free(inseg.p);
-      inseg.p = NULL;
-    }
-  } else {
-    /* If no matching PCB was found, send a TCP RST (reset) to the
-       sender. */
-    LWIP_DEBUGF(TCP_RST_DEBUG, ("tcp_input: no PCB match found, resetting.\n"));
-    if (!(TCPH_FLAGS(tcphdr) & TCP_RST)) {
-      TCP_STATS_INC(tcp.proterr);
-      TCP_STATS_INC(tcp.drop);
-      tcp_rst(NULL, ackno, seqno + tcplen, ip_current_dest_addr(),
-              ip_current_src_addr(), tcphdr->dest, tcphdr->src);
-    }
-    pbuf_free(p);
-  }
+        /* give up our reference to inseg.p */
+        if (inseg.p != NULL) {
+          pbuf_free(inseg.p);
+          inseg.p = NULL;
+        }
+      } else {
+        /* If no matching PCB was found, send a TCP RST (reset) to the
+           sender. */
+        LWIP_DEBUGF(TCP_RST_DEBUG, ("tcp_input: no PCB match found, resetting.\n"));
+        if (!(TCPH_FLAGS(tcphdr) & TCP_RST)) {
+          TCP_STATS_INC(tcp.proterr);
+          TCP_STATS_INC(tcp.drop);
+          tcp_rst(NULL, ackno, seqno + tcplen, ip_current_dest_addr(),
+                  ip_current_src_addr(), tcphdr->dest, tcphdr->src);
+        }
+        pbuf_free(p);
+      }
 
-  LWIP_ASSERT("tcp_input: tcp_pcbs_sane()", tcp_pcbs_sane());
-  PERF_STOP("tcp_input");
-  return;
+      LWIP_ASSERT("tcp_input: tcp_pcbs_sane()", tcp_pcbs_sane());
+      PERF_STOP("tcp_input");
+      return;
 dropped:
-  TCP_STATS_INC(tcp.drop);
-  MIB2_STATS_INC(mib2.tcpinerrs);
-  pbuf_free(p);
+      TCP_STATS_INC(tcp.drop);
+      MIB2_STATS_INC(mib2.tcpinerrs);
+      pbuf_free(p);
 }
 
 /** Called from tcp_input to check for TF_CLOSED flag. This results in closing
@@ -625,7 +801,15 @@ tcp_input_delayed_close(struct tcp_pcb *pcb)
  *
  * @note the segment which arrived is saved in global variables, therefore only the pcb
  *       involved is passed as a parameter to this function
- */
+ */ 
+/*********************************************************************************************************
+** 函数名称: tcp_listen_input
+** 功能描述: 处理处于 liste 状态的 tcp 协议控制块接收到的 SYN 或者 ACK 分片数据包
+** 输	 入: pcb - 接收到 tcp 分片数据包并处于 listen 状态的 tcp 协议控制块
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void
 tcp_listen_input(struct tcp_pcb_listen *pcb)
 {
@@ -642,20 +826,28 @@ tcp_listen_input(struct tcp_pcb_listen *pcb)
 
   /* In the LISTEN state, we check for incoming SYN segments,
      creates a new PCB, and responds with a SYN|ACK. */
+  /* 判断当前接收到的 tcp 分片数据包是否是 SYN 数据包，如果是 SYN 数据包，则发送一个 SYN|ACK 的响应包到对端设备
+   * 如果接收到的 tcp 分片数据包是 ACK 数据包，则发送一个 tcp reset 控制数据包到对端设备 */
   if (flags & TCP_ACK) {
-    /* For incoming segments with the ACK flag set, respond with a
-       RST. */
+    /* For incoming segments with the ACK flag set, respond with a RST. */
     LWIP_DEBUGF(TCP_RST_DEBUG, ("tcp_listen_input: ACK in LISTEN, sending reset\n"));
+
+    /* 根据函数参数构建一个 tcp reset 控制数据包并发送到指定的目的地址处，复位指定的 tpc 连接 */
     tcp_rst((const struct tcp_pcb *)pcb, ackno, seqno + tcplen, ip_current_dest_addr(),
             ip_current_src_addr(), tcphdr->dest, tcphdr->src);
+  
   } else if (flags & TCP_SYN) {
     LWIP_DEBUGF(TCP_DEBUG, ("TCP connection request %"U16_F" -> %"U16_F".\n", tcphdr->src, tcphdr->dest));
+
+/* 判断当前 tcp 协议控制块已经建立的连接请求数是否已经超过预先设定的阈值，如果超过了，则拒绝对端设备本次发送的连接请求 */	
 #if TCP_LISTEN_BACKLOG
     if (pcb->accepts_pending >= pcb->backlog) {
       LWIP_DEBUGF(TCP_DEBUG, ("tcp_listen_input: listen backlog exceeded for port %"U16_F"\n", tcphdr->dest));
       return;
     }
 #endif /* TCP_LISTEN_BACKLOG */
+
+    /* 从当前系统的 MEMP_TCP_PCB 内存池中申请一个指定优先级的 tcp 协议控制块结构 */
     npcb = tcp_alloc(pcb->prio);
     /* If a new PCB could not be created (probably due to lack of memory),
        we don't do anything, but rely on the sender will retransmit the
@@ -668,11 +860,15 @@ tcp_listen_input(struct tcp_pcb_listen *pcb)
       LWIP_UNUSED_ARG(err); /* err not useful here */
       return;
     }
+
+/* 统计处于 listen 状态且接收到 SYN 数据包的 tcp 协议控制块已经处理的连接请求数 */
 #if TCP_LISTEN_BACKLOG
     pcb->accepts_pending++;
     tcp_set_flags(npcb, TF_BACKLOGPEND);
 #endif /* TCP_LISTEN_BACKLOG */
+
     /* Set up the new PCB. */
+    /* 初始化新申请的 tcp 协议控制块成员值 */
     ip_addr_copy(npcb->local_ip, *ip_current_dest_addr());
     ip_addr_copy(npcb->remote_ip, *ip_current_src_addr());
     npcb->local_port = pcb->local_port;
@@ -687,21 +883,28 @@ tcp_listen_input(struct tcp_pcb_listen *pcb)
     npcb->snd_lbb = iss;
     npcb->snd_wl1 = seqno - 1;/* initialise to seqno-1 to force window update */
     npcb->callback_arg = pcb->callback_arg;
+	
 #if LWIP_CALLBACK_API || TCP_LISTEN_BACKLOG
     npcb->listener = pcb;
 #endif /* LWIP_CALLBACK_API || TCP_LISTEN_BACKLOG */
+
     /* inherit socket options */
     npcb->so_options = pcb->so_options & SOF_INHERITED;
     npcb->netif_idx = pcb->netif_idx;
+	
     /* Register the new PCB so that we can begin receiving segments
        for it. */
-    TCP_REG_ACTIVE(npcb);
+	/* 把指定的 tcp 协议控制块插入到当前协议栈的 tcp_active_pcbs 链表中 */
+	TCP_REG_ACTIVE(npcb);
 
     /* Parse any options in the SYN. */
+	/* 解析当前接收到的 SYN tcp 分片数据包中的选项数据，并把选项数据内容更新到新创建的 tcp 协议控制块中 */
     tcp_parseopt(npcb);
+	
     npcb->snd_wnd = tcphdr->wnd;
     npcb->snd_wnd_max = npcb->snd_wnd;
-
+	
+/* 通过当前 tcp mss 和指定网络接口的 mtu 计算到指定目的 IP 地址处的有效 mss */
 #if TCP_CALCULATE_EFF_SEND_MSS
     npcb->mss = tcp_eff_send_mss(npcb->mss, &npcb->local_ip, &npcb->remote_ip);
 #endif /* TCP_CALCULATE_EFF_SEND_MSS */
@@ -716,11 +919,15 @@ tcp_listen_input(struct tcp_pcb_listen *pcb)
 #endif
 
     /* Send a SYN|ACK together with the MSS option. */
+    /* 为指定的 tcp 协议控制块发送一个具有 TCP_SYN|TCP_ACK 控制位信息的数据包，这个数据包中包含 MSS 信息
+     * 此函数只是把要发送的 tcp 分片数据包添加到指定的 tcp 协议控制块的未发送数据队列中 */
     rc = tcp_enqueue_flags(npcb, TCP_SYN | TCP_ACK);
     if (rc != ERR_OK) {
       tcp_abandon(npcb, 0);
       return;
     }
+
+	/* 尝试发送指定 tcp 协议控制块的未发送数据队列中的分片数据包数据 */
     tcp_output(npcb);
   }
   return;
@@ -734,7 +941,15 @@ tcp_listen_input(struct tcp_pcb_listen *pcb)
  *
  * @note the segment which arrived is saved in global variables, therefore only the pcb
  *       involved is passed as a parameter to this function
- */
+ */ 
+/*********************************************************************************************************
+** 函数名称: tcp_timewait_input
+** 功能描述: 处理处于 TIME_WAIT 状态的 tcp 协议控制块接收到的 tcp 分片数据包
+** 输	 入: pcb - 接收到 tcp 分片数据包并处于 TIME_WAIT 状态的 tcp 协议控制块
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void
 tcp_timewait_input(struct tcp_pcb *pcb)
 {
@@ -750,24 +965,36 @@ tcp_timewait_input(struct tcp_pcb *pcb)
   LWIP_ASSERT("tcp_timewait_input: invalid pcb", pcb != NULL);
 
   /* - fourth, check the SYN bit, */
+  /* 判断当前接收到的 tcp 分片数据包是否是 SYN 数据包 */
   if (flags & TCP_SYN) {
     /* If an incoming segment is not acceptable, an acknowledgment
        should be sent in reply */
+    /* 判断当前接收的 tcp 分片数据包的字序号是否在当前 tcp 协议控制块的接收窗口中，如果
+	 * 在当前 tcp 协议控制块的接收窗口中，表示对端设备因为操作失误而发送了 SYN 数据包，所
+	 * 以向对端设备发送一个 tcp reset 控制数据包 */
     if (TCP_SEQ_BETWEEN(seqno, pcb->rcv_nxt, pcb->rcv_nxt + pcb->rcv_wnd)) {
       /* If the SYN is in the window it is an error, send a reset */
       tcp_rst(pcb, ackno, seqno + tcplen, ip_current_dest_addr(),
               ip_current_src_addr(), tcphdr->dest, tcphdr->src);
       return;
     }
+  
+  /* 判断当前接收到的 tcp 分片数据包是否是 FIN 数据包 */
   } else if (flags & TCP_FIN) {
     /* - eighth, check the FIN bit: Remain in the TIME-WAIT state.
          Restart the 2 MSL time-wait timeout.*/
+    /* 如果当前接收到的 tcp 分片数据包是 FIN 数据包，表示当前设备发送的 FIN 应答数据包
+	 * 可能因为链路问题，导致对方设备没有成功接收到，所以需要重新启动超时周期为 2 个 MSL
+	 *（Maximum Segment Lifetime）的 TIME_WAIT 定时器 */
     pcb->tmr = tcp_ticks;
   }
 
   if ((tcplen > 0)) {
     /* Acknowledge data, FIN or out-of-window SYN */
+    /* 设置指定 tcp 协议控制块的 TF_ACK_NOW 标志位 */
     tcp_ack_now(pcb);
+
+    /* 通过上面设置的 TF_ACK_NOW 标志位，向当前 tcp 协议控制块的对端设备发送一个没有负载数据的应答数据包 */
     tcp_output(pcb);
   }
   return;
@@ -783,12 +1010,23 @@ tcp_timewait_input(struct tcp_pcb *pcb)
  *
  * @note the segment which arrived is saved in global variables, therefore only the pcb
  *       involved is passed as a parameter to this function
- */
+ */ 
+/*********************************************************************************************************
+** 函数名称: tcp_process
+** 功能描述: 根据当前 tcp 协议控制块状态执行相应的数据包处理逻辑，实现了 tcp 状态机功能
+** 输	 入: pcb - 接收到数据包且处于 active 状态的 tcp 协议控制块
+** 输	 出: err_t - 操作状态
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static err_t
 tcp_process(struct tcp_pcb *pcb)
 {
   struct tcp_seg *rseg;
+
+  /* 表示指定的 tcp 协议控制块是否可以处理接收到的 RST 数据包 */
   u8_t acceptable = 0;
+  
   err_t err;
 
   err = ERR_OK;
@@ -796,6 +1034,7 @@ tcp_process(struct tcp_pcb *pcb)
   LWIP_ASSERT("tcp_process: invalid pcb", pcb != NULL);
 
   /* Process incoming RST segments. */
+  /* 处理当前 tcp 协议控制块接收到的 reset 分片数据包 */
   if (flags & TCP_RST) {
     /* First, determine if the reset is acceptable. */
     if (pcb->state == SYN_SENT) {
@@ -815,6 +1054,8 @@ tcp_process(struct tcp_pcb *pcb)
            and wait for a re-send with matching sequence number.
            This follows RFC 5961 section 3.2 and addresses CVE-2004-0230
            (RST spoofing attack), which is present in RFC 793 RST handling. */
+           
+		/* 设置指定 tcp 协议控制块的 TF_ACK_NOW 标志位 */
         tcp_ack_now(pcb);
       }
     }
@@ -822,9 +1063,13 @@ tcp_process(struct tcp_pcb *pcb)
     if (acceptable) {
       LWIP_DEBUGF(TCP_INPUT_DEBUG, ("tcp_process: Connection RESET\n"));
       LWIP_ASSERT("tcp_input: pcb->state != CLOSED", pcb->state != CLOSED);
+	
       recv_flags |= TF_RESET;
+	  
+	  /* 清除指定 tcp 协议控制块的 TF_ACK_DELAY 标志位 */
       tcp_clear_flags(pcb, TF_ACK_DELAY);
       return ERR_RST;
+	  
     } else {
       LWIP_DEBUGF(TCP_INPUT_DEBUG, ("tcp_process: unacceptable reset seqno %"U32_F" rcv_nxt %"U32_F"\n",
                                     seqno, pcb->rcv_nxt));
@@ -834,6 +1079,7 @@ tcp_process(struct tcp_pcb *pcb)
     }
   }
 
+  /* 处理远端设备因为崩溃导致的重新发送连接请求的数据包信息 */
   if ((flags & TCP_SYN) && (pcb->state != SYN_SENT && pcb->state != SYN_RCVD)) {
     /* Cope with new connection attempt after remote end crashed */
     tcp_ack_now(pcb);
@@ -844,19 +1090,27 @@ tcp_process(struct tcp_pcb *pcb)
     /* Update the PCB (in)activity timer unless rx is closed (see tcp_shutdown) */
     pcb->tmr = tcp_ticks;
   }
+  
   pcb->keep_cnt_sent = 0;
   pcb->persist_probe = 0;
 
+  /* 解析指定 tcp 协议控制块当前接收到的 tcp 分片数据包的选项数据，并把选项数据内容
+   * 更新到指定的 tcp 协议控制块中 */
   tcp_parseopt(pcb);
 
   /* Do different things depending on the TCP state. */
+  /* 根据当前 tcp 协议控制块状态执行相应的数据包处理逻辑，实现了 tcp 状态机功能 */
   switch (pcb->state) {
     case SYN_SENT:
       LWIP_DEBUGF(TCP_INPUT_DEBUG, ("SYN-SENT: ackno %"U32_F" pcb->snd_nxt %"U32_F" unacked %"U32_F"\n", ackno,
                                     pcb->snd_nxt, lwip_ntohl(pcb->unacked->tcphdr->seqno)));
+  
       /* received SYN ACK with expected sequence number? */
+	  /* 如果当前 tcp 协议控制块处于 SYN_SENT 状态，则需要处理对端设备发送的 TCP_ACK|TCP_SYN 分片数据包 */
       if ((flags & TCP_ACK) && (flags & TCP_SYN)
           && (ackno == pcb->lastack + 1)) {
+
+		/* 根据接收到的 SYN 应答数据包更新当前 tcp 协议控制块的相关变量值 */
         pcb->rcv_nxt = seqno + 1;
         pcb->rcv_ann_right_edge = pcb->rcv_nxt;
         pcb->lastack = ackno;
@@ -866,16 +1120,27 @@ tcp_process(struct tcp_pcb *pcb)
         pcb->state = ESTABLISHED;
 
 #if TCP_CALCULATE_EFF_SEND_MSS
+		/* 通过当前 tcp mss 和指定网络接口的 mtu 计算到指定目的 IP 地址处的有效 mss */
         pcb->mss = tcp_eff_send_mss(pcb->mss, &pcb->local_ip, &pcb->remote_ip);
 #endif /* TCP_CALCULATE_EFF_SEND_MSS */
 
+		/* 设置当前 tcp 协议控制块使用协议栈默认的拥塞窗口值 */
         pcb->cwnd = LWIP_TCP_CALC_INITIAL_CWND(pcb->mss);
+
         LWIP_DEBUGF(TCP_CWND_DEBUG, ("tcp_process (SENT): cwnd %"TCPWNDSIZE_F
                                      " ssthresh %"TCPWNDSIZE_F"\n",
                                      pcb->cwnd, pcb->ssthresh));
         LWIP_ASSERT("pcb->snd_queuelen > 0", (pcb->snd_queuelen > 0));
+
+		/* 因为 pcb->snd_queuelen 统计了未发送的数据包和发送但是未应答的 pbuf 数据包之和，而目前接收到
+		 * 了一个 SYN 应答数据包，且 SYN 数据包只占用了一个 pbuf，所以这个位置需要减一 */
         --pcb->snd_queuelen;
+		
         LWIP_DEBUGF(TCP_QLEN_DEBUG, ("tcp_process: SYN-SENT --queuelen %"TCPWNDSIZE_F"\n", (tcpwnd_size_t)pcb->snd_queuelen));
+
+		/* 因为目前处于建立 tcp 连接阶段的 SYN_SENT 状态，所以当前 tcp 协议控制块的 pcb->unacked 和 pcb->unsent
+		 * 中只会包含一个 tcp 分片数据包，即发送的 SYN 数据包，所以在我们就收到 SYN 应答数据包的时候，只需要从
+		 * 这两个链表中直接移除一人 tcp 分片数据包即可 */
         rseg = pcb->unacked;
         if (rseg == NULL) {
           /* might happen if tcp_output fails in tcp_rexmit_rto()
@@ -886,10 +1151,14 @@ tcp_process(struct tcp_pcb *pcb)
         } else {
           pcb->unacked = rseg->next;
         }
+
+		/* 释放当前应答的 SYN 分片数据包占用的内存空间 */
         tcp_seg_free(rseg);
 
         /* If there's nothing left to acknowledge, stop the retransmit
            timer, otherwise reset it to start again */
+        /* 如果当前 tcp 协议控制块的发送但未应答队列“不为”空，则重新启动数据包重传定时器
+         * 如果当前 tcp 协议控制块的发送但未应答队列“为”空，则暂停数据包重传定时器 */
         if (pcb->unacked == NULL) {
           pcb->rtime = -1;
         } else {
@@ -898,56 +1167,80 @@ tcp_process(struct tcp_pcb *pcb)
         }
 
         /* Call the user specified function to call when successfully
-         * connected. */
+         * connected. */         
+		/* 通过用户注册在指定的 tcp 协议控制块中的回调函数通知应用层成功建立了 tcp 连接 */
         TCP_EVENT_CONNECTED(pcb, ERR_OK, err);
         if (err == ERR_ABRT) {
           return ERR_ABRT;
         }
+		
+		/* 设置指定 tcp 协议控制块的 TF_ACK_NOW 标志位 */
         tcp_ack_now(pcb);
       }
       /* received ACK? possibly a half-open connection */
       else if (flags & TCP_ACK) {
         /* send a RST to bring the other side in a non-synchronized state. */
+	    /* 根据函数参数构建一个 tcp reset 控制数据包并发送到对端设备地址处，复位当前的 tpc 连接 */
         tcp_rst(pcb, ackno, seqno + tcplen, ip_current_dest_addr(),
                 ip_current_src_addr(), tcphdr->dest, tcphdr->src);
+		
         /* Resend SYN immediately (don't wait for rto timeout) to establish
           connection faster, but do not send more SYNs than we otherwise would
           have, or we might get caught in a loop on loopback interfaces. */
+        /* 如果我们连续发送的 SYN 数据包次数没有超过预先设定的阈值，则尝试重新发送一个 SYN 数据包 */
         if (pcb->nrtx < TCP_SYNMAXRTX) {
           pcb->rtime = 0;
           tcp_rexmit_rto(pcb);
         }
       }
       break;
+	  
     case SYN_RCVD:
       if (flags & TCP_ACK) {
+	  	
         /* expected ACK number? */
-        if (TCP_SEQ_BETWEEN(ackno, pcb->lastack + 1, pcb->snd_nxt)) {
+	    /* 判断当前接收到的数据包的字序号是否是我们想要的，如果是，则成功建立连接
+	     * 如果不是我们想要的字序号，则复位当前 tcp 协议控制块的连接，表示建立连接失败 */
+		if (TCP_SEQ_BETWEEN(ackno, pcb->lastack + 1, pcb->snd_nxt)) {
           pcb->state = ESTABLISHED;
+		  
           LWIP_DEBUGF(TCP_DEBUG, ("TCP connection established %"U16_F" -> %"U16_F".\n", inseg.tcphdr->src, inseg.tcphdr->dest));
+		
 #if LWIP_CALLBACK_API || TCP_LISTEN_BACKLOG
           if (pcb->listener == NULL) {
             /* listen pcb might be closed by now */
             err = ERR_VAL;
           } else
 #endif /* LWIP_CALLBACK_API || TCP_LISTEN_BACKLOG */
+
           {
+          
 #if LWIP_CALLBACK_API
             LWIP_ASSERT("pcb->listener->accept != NULL", pcb->listener->accept != NULL);
 #endif
+ 
+            /* 减小指定的 tcp 协议控制块所属监听者的 backlog 计数值 */
             tcp_backlog_accepted(pcb);
+
             /* Call the accept function. */
+			/* 通过用户注册在指定的 tcp 协议控制块中的回调函数通知应用层成功建立了 tcp 连接 */
             TCP_EVENT_ACCEPT(pcb->listener, pcb, pcb->callback_arg, ERR_OK, err);
           }
+
+          /* 如果应用层注册的回调函数返回错误，则终止当前已经建立的 tcp 连接并释放对应的 tcp 协议
+           * 控制块占用的内存空间 */
           if (err != ERR_OK) {
             /* If the accept function returns with an error, we abort
              * the connection. */
             /* Already aborted? */
             if (err != ERR_ABRT) {
+			  /* 通过发送 reset 数据包来终止指定的 tcp 协议控制块的 tcp 连接，并释放指定的
+               * tcp 协议控制块结构占用的内存空间 */
               tcp_abort(pcb);
             }
             return ERR_ABRT;
           }
+		  
           /* If there was any data contained within this ACK,
            * we'd better pass it on to the application as well. */
           tcp_receive(pcb);
@@ -957,30 +1250,39 @@ tcp_process(struct tcp_pcb *pcb)
             recv_acked--;
           }
 
+          /* 设置新的 tcp 连接的拥塞窗口值为当前协议栈默认使用的拥塞窗口值 */
           pcb->cwnd = LWIP_TCP_CALC_INITIAL_CWND(pcb->mss);
+		  
           LWIP_DEBUGF(TCP_CWND_DEBUG, ("tcp_process (SYN_RCVD): cwnd %"TCPWNDSIZE_F
                                        " ssthresh %"TCPWNDSIZE_F"\n",
                                        pcb->cwnd, pcb->ssthresh));
 
+          /* 如果成功建立连接后又接收到了对端设备发送的 FIN 断开连接请求数据包，则设置当前 tcp 协议控制块为
+           * 断开等待状态，并发送一个应答数据包到对端设备 */
           if (recv_flags & TF_GOT_FIN) {
             tcp_ack_now(pcb);
             pcb->state = CLOSE_WAIT;
           }
         } else {
           /* incorrect ACK number, send RST */
+		  /* 不是我们想要的字序号，则复位当前 tcp 协议控制块的连接，表示建立连接失败 */
           tcp_rst(pcb, ackno, seqno + tcplen, ip_current_dest_addr(),
                   ip_current_src_addr(), tcphdr->dest, tcphdr->src);
         }
       } else if ((flags & TCP_SYN) && (seqno == pcb->rcv_nxt - 1)) {
         /* Looks like another copy of the SYN - retransmit our SYN-ACK */
+	    /* 如果在 SYN_RCVD 状态下接收到了重复的、已经接收到的 SYN 数据包，表示对端设备可能没接收到
+	     * 我们发送的 ACK|SYN 应答数据包，所以我们尝试重新发送一个 ACK|SYN 应答数据包 */
         tcp_rexmit(pcb);
       }
       break;
+	  
     case CLOSE_WAIT:
     /* FALLTHROUGH */
     case ESTABLISHED:
       tcp_receive(pcb);
-      if (recv_flags & TF_GOT_FIN) { /* passive close */
+      if (recv_flags & TF_GOT_FIN) { /* passive close */	  	
+	    /* 设置指定 tcp 协议控制块的 TF_ACK_NOW 标志位 */
         tcp_ack_now(pcb);
         pcb->state = CLOSE_WAIT;
       }
@@ -992,12 +1294,17 @@ tcp_process(struct tcp_pcb *pcb)
             pcb->unsent == NULL) {
           LWIP_DEBUGF(TCP_DEBUG,
                       ("TCP connection closed: FIN_WAIT_1 %"U16_F" -> %"U16_F".\n", inseg.tcphdr->src, inseg.tcphdr->dest));
+		  /* 设置指定 tcp 协议控制块的 TF_ACK_NOW 标志位 */
           tcp_ack_now(pcb);
+		  /* 清空指定的、不是处于完全关闭状态的 tcp 协议控制块的所有缓存数据 */
           tcp_pcb_purge(pcb);
+		  /* 把指定的 tcp 协议控制块从当前协议栈的 tcp_active_pcbs 链表中移除 */
           TCP_RMV_ACTIVE(pcb);
           pcb->state = TIME_WAIT;
+		  /* 把指定的 tcp 协议控制块注册到指定的 tcp 协议控制块链表中 */
           TCP_REG(&tcp_tw_pcbs, pcb);
         } else {
+	      /* 设置指定 tcp 协议控制块的 TF_ACK_NOW 标志位 */
           tcp_ack_now(pcb);
           pcb->state = CLOSING;
         }
@@ -1010,10 +1317,14 @@ tcp_process(struct tcp_pcb *pcb)
       tcp_receive(pcb);
       if (recv_flags & TF_GOT_FIN) {
         LWIP_DEBUGF(TCP_DEBUG, ("TCP connection closed: FIN_WAIT_2 %"U16_F" -> %"U16_F".\n", inseg.tcphdr->src, inseg.tcphdr->dest));
+		/* 设置指定 tcp 协议控制块的 TF_ACK_NOW 标志位 */
         tcp_ack_now(pcb);
+	    /* 清空指定的、不是处于完全关闭状态的 tcp 协议控制块的所有缓存数据 */
         tcp_pcb_purge(pcb);
+		/* 把指定的 tcp 协议控制块从当前协议栈的 tcp_active_pcbs 链表中移除 */
         TCP_RMV_ACTIVE(pcb);
         pcb->state = TIME_WAIT;
+		/* 把指定的 tcp 协议控制块注册到指定的 tcp 协议控制块链表中 */
         TCP_REG(&tcp_tw_pcbs, pcb);
       }
       break;
@@ -1021,9 +1332,12 @@ tcp_process(struct tcp_pcb *pcb)
       tcp_receive(pcb);
       if ((flags & TCP_ACK) && ackno == pcb->snd_nxt && pcb->unsent == NULL) {
         LWIP_DEBUGF(TCP_DEBUG, ("TCP connection closed: CLOSING %"U16_F" -> %"U16_F".\n", inseg.tcphdr->src, inseg.tcphdr->dest));
+	    /* 清空指定的、不是处于完全关闭状态的 tcp 协议控制块的所有缓存数据 */
         tcp_pcb_purge(pcb);
+	    /* 把指定的 tcp 协议控制块从当前协议栈的 tcp_active_pcbs 链表中移除 */
         TCP_RMV_ACTIVE(pcb);
         pcb->state = TIME_WAIT;
+		/* 把指定的 tcp 协议控制块注册到指定的 tcp 协议控制块链表中 */
         TCP_REG(&tcp_tw_pcbs, pcb);
       }
       break;
@@ -1046,7 +1360,16 @@ tcp_process(struct tcp_pcb *pcb)
  * Insert segment into the list (segments covered with new one will be deleted)
  *
  * Called from tcp_receive()
- */
+ */ 
+/*********************************************************************************************************
+** 函数名称: tcp_oos_insert_segment
+** 功能描述: 把指定的 tcp 分片数据包链表链接到指定的 tcp 分片数据包后，并把他们相交重叠部分的内存空间释放掉
+** 输	 入: cseg - 需要链接的 tcp 分片数据包，链接后处于链表头部位置
+**         : next - 需要链接的 tcp 分片数据包链表，链接后处于链表尾部位置
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void
 tcp_oos_insert_segment(struct tcp_seg *cseg, struct tcp_seg *next)
 {
@@ -1061,17 +1384,23 @@ tcp_oos_insert_segment(struct tcp_seg *cseg, struct tcp_seg *next)
   } else {
     /* delete some following segments
        oos queue may have segments with FIN flag */
+    /* 把和指定的、新接收到的 tcp 分片数据包完全覆盖的乱序数据包从当前 tcp 协议控制块的
+	 * 乱选队列中移除并释放其占用的资源 */
     while (next &&
            TCP_SEQ_GEQ((seqno + cseg->len),
                        (next->tcphdr->seqno + next->len))) {
       /* cseg with FIN already processed */
-      if (TCPH_FLAGS(next->tcphdr) & TCP_FIN) {
+      /* 复制重叠区数据包中的 FIN 标志 */
+	  if (TCPH_FLAGS(next->tcphdr) & TCP_FIN) {
         TCPH_SET_FLAG(cseg->tcphdr, TCP_FIN);
       }
+	  
       old_seg = next;
       next = next->next;
       tcp_seg_free(old_seg);
     }
+
+	/* 把当前接收到的 tcp 分片数据包字序号和乱序队列中相邻的数据的字序号裁剪成相交对齐位置处 */
     if (next &&
         TCP_SEQ_GT(seqno + cseg->len, next->tcphdr->seqno)) {
       /* We need to trim the incoming segment. */
@@ -1079,11 +1408,23 @@ tcp_oos_insert_segment(struct tcp_seg *cseg, struct tcp_seg *next)
       pbuf_realloc(cseg->p, cseg->len);
     }
   }
+  
   cseg->next = next;
 }
 #endif /* TCP_QUEUE_OOSEQ */
 
 /** Remove segments from a list if the incoming ACK acknowledges them */
+/*********************************************************************************************************
+** 函数名称: tcp_free_acked_segments
+** 功能描述: 从指定的发送但还未应答的 tcp 分片数据包链表中把当前应答的分片数据包移除
+** 输	 入: pcb - 收到的 tcp 分片数据包的协议控制块
+**         : seg_list - 需要移除被应答的 tcp 分片数据包的链表指针
+**         : dbg_list_name - 表示指定的 tcp 分片数据包链表名字
+**         : dbg_other_seg_list - 表示和指定的 tcp 分片数据包链表相关的另一个链表指针
+** 输	 出: seg_list - 释放了被应答的数据包之后的 tcp 分片数据包链表头指针
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static struct tcp_seg *
 tcp_free_acked_segments(struct tcp_pcb *pcb, struct tcp_seg *seg_list, const char *dbg_list_name,
                         struct tcp_seg *dbg_other_seg_list)
@@ -1094,9 +1435,11 @@ tcp_free_acked_segments(struct tcp_pcb *pcb, struct tcp_seg *seg_list, const cha
   LWIP_UNUSED_ARG(dbg_list_name);
   LWIP_UNUSED_ARG(dbg_other_seg_list);
 
+  /* 分别遍历指定的 tcp 分片数据包链表，*/
   while (seg_list != NULL &&
          TCP_SEQ_LEQ(lwip_ntohl(seg_list->tcphdr->seqno) +
                      TCP_TCPLEN(seg_list), ackno)) {
+                     
     LWIP_DEBUGF(TCP_INPUT_DEBUG, ("tcp_receive: removing %"U32_F":%"U32_F" from pcb->%s\n",
                                   lwip_ntohl(seg_list->tcphdr->seqno),
                                   lwip_ntohl(seg_list->tcphdr->seqno) + TCP_TCPLEN(seg_list),
@@ -1105,13 +1448,20 @@ tcp_free_acked_segments(struct tcp_pcb *pcb, struct tcp_seg *seg_list, const cha
     next = seg_list;
     seg_list = seg_list->next;
 
+    /* 计数当前被应答的 tcp 分片数据包的 pbuf 链表长度 */
     clen = pbuf_clen(next->p);
+	
     LWIP_DEBUGF(TCP_QLEN_DEBUG, ("tcp_receive: queuelen %"TCPWNDSIZE_F" ... ",
                                  (tcpwnd_size_t)pcb->snd_queuelen));
     LWIP_ASSERT("pcb->snd_queuelen >= pbuf_clen(next->p)", (pcb->snd_queuelen >= clen));
 
+    /* 更新当前 tcp 协议控制块的发送队列长度中包含的 pbuf 长度（包含了未发送的数据包和发送但是未应答的数据包之和）*/
     pcb->snd_queuelen = (u16_t)(pcb->snd_queuelen - clen);
+
+	/* 统计当前接收到的应答数据包应答的数据块的字节数 */
     recv_acked = (tcpwnd_size_t)(recv_acked + next->len);
+
+	/* 释放指定的 tcp 分片数据包 */
     tcp_seg_free(next);
 
     LWIP_DEBUGF(TCP_QLEN_DEBUG, ("%"TCPWNDSIZE_F" (after freeing %s)\n",
@@ -1137,6 +1487,43 @@ tcp_free_acked_segments(struct tcp_pcb *pcb, struct tcp_seg *seg_list, const cha
  *
  * Called from tcp_process().
  */
+/*********************************************************************************************************
+** 函数名称: tcp_receive
+** 功能描述: 处理指定的 tcp 协议控制块上接收到的 tcp 分片数据包，具体执行操作如下：
+**         : 1. 处理当前接收到的 tcp 分片数据包中的应答信息数据，操作如下：
+**         :    a. 根据当前 tcp 协议控制块接收到的最新的应答数据包的协议头信息更新这个协议控制块的发送窗口
+**         :    b. 如果当前接收到的 tcp 应答数据包是重复的应答数据包，则执行如下逻辑：
+**         :       I. 如果连续接收到 3 个重复的应答数据包，则启动快速重传和快速恢复逻辑
+**         :       II.如果连接接收到大于 3 个重复的应答数，则增加当前协议控制块的拥塞窗口值
+**         :    c. 如果当前接收到的应答数据包不是重复的应答信息，则复位重复应答数据包计数值
+**         :    d. 如果当前接收到的应答数据包是在 pcb->unacked 队列中的应答数据包，则执行如下逻辑：
+**         :       I.   如果之前处于快速重传状态，则清空快速重传标志并设置拥塞窗口值为慢启动阈值
+**         :       II.  更新当前 tcp 协议控制块的拥塞窗口大小
+**         :       III. 尝试从指定的发送但还未应答的 tcp 分片数据包链表中把当前应答的分片数据包移除
+**         :       IV.  尝试从指定的发送但还未应答的 tcp 分片数据包链表中把当前应答的分片数据包移除
+**         :       V.   如果当前 tcp 协议控制块中还有发送但还未应答的数据包，则重新启动超时重传定时器
+**         :            如果没有已经发送但还未应答的数据包，则关闭超时重传定时器
+**         :       VI.  判断我们当时是否启动了数据包发送超时重传逻辑，如果启动了数据包发送超时重传逻辑
+**         :            则需要进一步判断当前接收到的应答数据块是否包含了所有发送超时重传的数据包，如果
+**         :            包含所有的发送超时重传数据包，表示我们重新发送的数据包对端设备已经全部成功接收
+**         :            到了，所以我们可以清除当前 tcp 协议控制的 TF_RTO 标志了
+**         :       VII. 通过接收到的应答数据包计算并更新当前 tcp 协议控制块收发数据包的 rtt（round-trip time）时间
+**         : 2. 处理当前接收到的 tcp 分片数据包中的负载数据，操作如下：
+**         :    a. 判断当前接收到的 tcp 分片数据包中的负载数据和我们之前已经接收到的数据包负载是否有重
+**         :       复数据，如果有重叠区，则需要把新接收到的 tcp 分片数据包的重叠区负载数据跳过，只处理
+**         :       那些没有重叠区的负载数据
+**         :    b. 判断当前接收到的 tcp 分片数据包是否是一个已经接收到的重复数据包，如果是重复数据包
+**         :       则直接发送一个应答数据包
+**         :    c. 判断当前接收到的 tcp 分片数据包是否在当前 tcp 协议控制块的接收窗口范围内，如果在，则
+**         :       执行如下操作：
+**         :       I.   如果当前接收到的数据包是“顺序”数据包，则尝试和乱序队里中的数据包合并并分发到应
+**         :            用层，存储在 recv_data 全局变量中
+**         :       II.  如果当前接收到的数据包是“乱序”数据包，则把这个数据包插入到乱序数据包队列中
+** 输	 入: pcb - 用来处理接收到的 tcp 分片数据包的协议控制块
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void
 tcp_receive(struct tcp_pcb *pcb)
 {
@@ -1147,22 +1534,31 @@ tcp_receive(struct tcp_pcb *pcb)
   LWIP_ASSERT("tcp_receive: invalid pcb", pcb != NULL);
   LWIP_ASSERT("tcp_receive: wrong state", pcb->state >= ESTABLISHED);
 
+  /* 处理当前接收到的 tcp 分片数据包中的应答信息数据 */
   if (flags & TCP_ACK) {
     right_wnd_edge = pcb->snd_wnd + pcb->snd_wl2;
 
     /* Update window. */
+    /* 根据当前 tcp 协议控制块接收到的最新的应答数据包的协议头信息更新这个协议控制块的发送窗口 */
     if (TCP_SEQ_LT(pcb->snd_wl1, seqno) ||
         (pcb->snd_wl1 == seqno && TCP_SEQ_LT(pcb->snd_wl2, ackno)) ||
         (pcb->snd_wl2 == ackno && (u32_t)SND_WND_SCALE(pcb, tcphdr->wnd) > pcb->snd_wnd)) {
+
+	  /* 把当前 tcp 协议控制块的发送窗口大小根据接收到的 tcp 分片数据包更新到最新值 */
       pcb->snd_wnd = SND_WND_SCALE(pcb, tcphdr->wnd);
-      /* keep track of the biggest window announced by the remote host to calculate
+
+	  /* keep track of the biggest window announced by the remote host to calculate
          the maximum segment size */
       if (pcb->snd_wnd_max < pcb->snd_wnd) {
         pcb->snd_wnd_max = pcb->snd_wnd;
       }
+
+	  /* 记录当前 tcp 协议控制块更新发送窗口时接收到的 tcp 分片数据包的字序号和应答字序号 */
       pcb->snd_wl1 = seqno;
       pcb->snd_wl2 = ackno;
+	  
       LWIP_DEBUGF(TCP_WND_DEBUG, ("tcp_receive: window update %"TCPWNDSIZE_F"\n", pcb->snd_wnd));
+	  
 #if TCP_WND_DEBUG
     } else {
       if (pcb->snd_wnd != (tcpwnd_size_t)SND_WND_SCALE(pcb, tcphdr->wnd)) {
@@ -1172,6 +1568,7 @@ tcp_receive(struct tcp_pcb *pcb)
                      pcb->lastack, ackno, pcb->snd_wl1, seqno, pcb->snd_wl2));
       }
 #endif /* TCP_WND_DEBUG */
+
     }
 
     /* (From Stevens TCP/IP Illustrated Vol II, p970.) Its only a
@@ -1195,6 +1592,10 @@ tcp_receive(struct tcp_pcb *pcb)
      */
 
     /* Clause 1 */
+	/* 在 tcp 协议控制块的接收端如果接收到了乱序的数据包，则会发送一个重复的应答数据
+	 * 到对端设备，来通知对端设备出现了数据丢包现象 */
+	 
+	/* 判断当前接收到的 tcp 应答数据包是否是重复的应答数据包 */
     if (TCP_SEQ_LEQ(ackno, pcb->lastack)) {
       /* Clause 2 */
       if (tcplen == 0) {
@@ -1205,26 +1606,37 @@ tcp_receive(struct tcp_pcb *pcb)
             /* Clause 5 */
             if (pcb->lastack == ackno) {
               found_dupack = 1;
+			  
               if ((u8_t)(pcb->dupacks + 1) > pcb->dupacks) {
                 ++pcb->dupacks;
               }
+			  
               if (pcb->dupacks > 3) {
                 /* Inflate the congestion window */
+				/* 因为在 pcb->dupacks = 3 的时候已经重传了丢失的数据包，并通过快速恢复功能调整窗口参数
+				 * 所以如果再次接收到重复的应答信息表示有其他报文发送失败，所以需要增加拥塞窗口值，以便
+				 * 于发送其它的数据包 */
                 TCP_WND_INC(pcb->cwnd, pcb->mss);
               }
+			  
               if (pcb->dupacks >= 3) {
                 /* Do fast retransmit (checked via TF_INFR, not via dupacks count) */
+			    /* 如果连续接收到 3 个重复的应答数据包，则启动快速重传和快速恢复逻辑 */
                 tcp_rexmit_fast(pcb);
               }
             }
           }
         }
       }
+	  
       /* If Clause (1) or more is true, but not a duplicate ack, reset
        * count of consecutive duplicate acks */
+      /* 如果当前接收到的应答数据包不是重复的应答信息，则复位重复应答数据包计数值 */
       if (!found_dupack) {
         pcb->dupacks = 0;
       }
+
+	/* 判断当前接收到的应答数据包是否是在 pcb->unacked 队列中的应答数据包 */
     } else if (TCP_SEQ_BETWEEN(ackno, pcb->lastack + 1, pcb->snd_nxt)) {
       /* We come here when the ACK acknowledges new data. */
       tcpwnd_size_t acked;
@@ -1232,6 +1644,8 @@ tcp_receive(struct tcp_pcb *pcb)
       /* Reset the "IN Fast Retransmit" flag, since we are no longer
          in fast retransmit. Also reset the congestion window to the
          slow start threshold. */
+      /* 如果当前 tcp 协议控制块收发数据已经恢复正常并且之前处于快速重传状态，则清空快速重传标志
+	   * 并设置拥塞窗口值为慢启动阈值 */
       if (pcb->flags & TF_INFR) {
         tcp_clear_flags(pcb, TF_INFR);
         pcb->cwnd = pcb->ssthresh;
@@ -1239,29 +1653,39 @@ tcp_receive(struct tcp_pcb *pcb)
       }
 
       /* Reset the number of retransmissions. */
+	  /* 复位当前 tcp 协议控制块的连续重传数据包次数计数值 */
       pcb->nrtx = 0;
 
       /* Reset the retransmission time-out. */
       pcb->rto = (s16_t)((pcb->sa >> 3) + pcb->sv);
 
       /* Record how much data this ACK acks */
+	  /* 记录本次应答数据包应答数据块的字节数 */
       acked = (tcpwnd_size_t)(ackno - pcb->lastack);
 
       /* Reset the fast retransmit variables. */
+	  /* 更新当前 tcp 协议控制块和数据包应答相关的记录变量值 */
       pcb->dupacks = 0;
       pcb->lastack = ackno;
 
       /* Update the congestion control variables (cwnd and
          ssthresh). */
+      /* 更新当前 tcp 协议控制块的拥塞窗口大小 */
       if (pcb->state >= ESTABLISHED) {
+	  	/* 如果当前拥塞窗口小于慢启动阈值，则执行慢启动算法更新当前拥塞窗口大小 */
         if (pcb->cwnd < pcb->ssthresh) {
           tcpwnd_size_t increase;
+		  
           /* limit to 1 SMSS segment during period following RTO */
           u8_t num_seg = (pcb->flags & TF_RTO) ? 1 : 2;
+		
           /* RFC 3465, section 2.2 Slow Start */
           increase = LWIP_MIN(acked, (tcpwnd_size_t)(num_seg * pcb->mss));
           TCP_WND_INC(pcb->cwnd, increase);
-          LWIP_DEBUGF(TCP_CWND_DEBUG, ("tcp_receive: slow start cwnd %"TCPWNDSIZE_F"\n", pcb->cwnd));
+
+		  LWIP_DEBUGF(TCP_CWND_DEBUG, ("tcp_receive: slow start cwnd %"TCPWNDSIZE_F"\n", pcb->cwnd));
+
+		/* 如果当前拥塞窗口大于等于慢启动阈值，则执行拥塞避免算法更新当前拥塞窗口大小*/
         } else {
           /* RFC 3465, section 2.1 Congestion Avoidance */
           TCP_WND_INC(pcb->bytes_acked, acked);
@@ -1269,9 +1693,11 @@ tcp_receive(struct tcp_pcb *pcb)
             pcb->bytes_acked = (tcpwnd_size_t)(pcb->bytes_acked - pcb->cwnd);
             TCP_WND_INC(pcb->cwnd, pcb->mss);
           }
-          LWIP_DEBUGF(TCP_CWND_DEBUG, ("tcp_receive: congestion avoidance cwnd %"TCPWNDSIZE_F"\n", pcb->cwnd));
+
+		  LWIP_DEBUGF(TCP_CWND_DEBUG, ("tcp_receive: congestion avoidance cwnd %"TCPWNDSIZE_F"\n", pcb->cwnd));
         }
       }
+	  
       LWIP_DEBUGF(TCP_INPUT_DEBUG, ("tcp_receive: ACK for %"U32_F", unacked->seqno %"U32_F":%"U32_F"\n",
                                     ackno,
                                     pcb->unacked != NULL ?
@@ -1281,6 +1707,7 @@ tcp_receive(struct tcp_pcb *pcb)
 
       /* Remove segment from the unacknowledged list if the incoming
          ACK acknowledges them. */
+      /* 尝试从指定的发送但还未应答的 tcp 分片数据包链表中把当前应答的分片数据包移除 */
       pcb->unacked = tcp_free_acked_segments(pcb, pcb->unacked, "unacked", pcb->unsent);
       /* We go through the ->unsent list to see if any of the segments
          on the list are acknowledged by the ACK. This may seem
@@ -1288,10 +1715,13 @@ tcp_receive(struct tcp_pcb *pcb)
          rationale is that lwIP puts all outstanding segments on the
          ->unsent list after a retransmission, so these segments may
          in fact have been sent once. */
+      /* 尝试从指定的发送但还未应答的 tcp 分片数据包链表中把当前应答的分片数据包移除 */
       pcb->unsent = tcp_free_acked_segments(pcb, pcb->unsent, "unsent", pcb->unacked);
 
       /* If there's nothing left to acknowledge, stop the retransmit
          timer, otherwise reset it to start again */
+      /* 如果当前 tcp 协议控制块中还有发送但还未应答的数据包，则重新启动超时重传定时器
+	   * 如果没有已经发送但还未应答的数据包，则关闭超时重传定时器 */
       if (pcb->unacked == NULL) {
         pcb->rtime = -1;
       } else {
@@ -1313,8 +1743,14 @@ tcp_receive(struct tcp_pcb *pcb)
       }
 #endif /* LWIP_IPV6 && LWIP_ND6_TCP_REACHABILITY_HINTS*/
 
+      /* 更新当前 tcp 协议控制块发送缓冲区大小 */
       pcb->snd_buf = (tcpwnd_size_t)(pcb->snd_buf + recv_acked);
+
       /* check if this ACK ends our retransmission of in-flight data */
+	  /* 判断我们当时是否启动了数据包发送超时重传逻辑，如果启动了数据包发送超时重传逻辑
+	   * 则需要进一步判断当前接收到的应答数据块是否包含了所有发送超时重传的数据包，如果
+	   * 包含所有的发送超时重传数据包，表示我们重新发送的数据包对端设备已经全部成功接收
+	   * 到了，所以我们可以清除当前 tcp 协议控制的 TF_RTO 标志了 */
       if (pcb->flags & TF_RTO) {
         /* RTO is done if
             1) both queues are empty or
@@ -1329,9 +1765,12 @@ tcp_receive(struct tcp_pcb *pcb)
           tcp_clear_flags(pcb, TF_RTO);
         }
       }
-      /* End of ACK for new data processing. */
+
+	  /* End of ACK for new data processing. */
+	  
     } else {
       /* Out of sequence ACK, didn't really ack anything */
+	  /* 向指定的 tcp 协议控制块的对端设备发送一个没有负载数据的应答数据包，这个数据包包含一些选项数据（直接发送数据包到 IP 层）*/
       tcp_send_empty_ack(pcb);
     }
 
@@ -1341,9 +1780,11 @@ tcp_receive(struct tcp_pcb *pcb)
     /* RTT estimation calculations. This is done by checking if the
        incoming segment acknowledges the segment we use to take a
        round-trip time measurement. */
+    /* 通过接收到的应答数据包计算并更新当前 tcp 协议控制块收发数据包的 rtt（round-trip time）时间 */
     if (pcb->rttest && TCP_SEQ_LT(pcb->rtseq, ackno)) {
       /* diff between this shouldn't exceed 32K since this are tcp timer ticks
          and a round-trip shouldn't be that long... */
+      /* 计算从发送数据包开始到接收到数据包的应答信息时消耗的时间 */
       m = (s16_t)(tcp_ticks - pcb->rttest);
 
       LWIP_DEBUGF(TCP_RTO_DEBUG, ("tcp_receive: experienced rtt %"U16_F" ticks (%"U16_F" msec).\n",
@@ -1355,6 +1796,7 @@ tcp_receive(struct tcp_pcb *pcb)
       if (m < 0) {
         m = (s16_t) - m;
       }
+	  
       m = (s16_t)(m - (pcb->sv >> 2));
       pcb->sv = (s16_t)(pcb->sv + m);
       pcb->rto = (s16_t)((pcb->sa >> 3) + pcb->sv);
@@ -1370,6 +1812,8 @@ tcp_receive(struct tcp_pcb *pcb)
      further unless the pcb already received a FIN.
      (RFC 793, chapter 3.9, "SEGMENT ARRIVES" in states CLOSE-WAIT, CLOSING,
      LAST-ACK and TIME-WAIT: "Ignore the segment text.") */
+     
+  /* 处理当前接收到的 tcp 分片数据包中的负载数据 */
   if ((tcplen > 0) && (pcb->state < CLOSE_WAIT)) {
     /* This code basically does three things:
 
@@ -1401,6 +1845,9 @@ tcp_receive(struct tcp_pcb *pcb)
        segment is larger than rcv_nxt. */
     /*    if (TCP_SEQ_LT(seqno, pcb->rcv_nxt)) {
           if (TCP_SEQ_LT(pcb->rcv_nxt, seqno + tcplen)) {*/
+    /* 判断当前接收到的 tcp 分片数据包中的负载数据和我们之前已经接收到的数据包负
+	 * 载是否有重复数据，如果有重叠区，则需要把新接收到的 tcp 分片数据包的重叠区
+	 * 负载数据跳过，只处理那些没有重叠区的负载数据 */
     if (TCP_SEQ_BETWEEN(pcb->rcv_nxt, seqno + 1, seqno + tcplen - 1)) {
       /* Trimming the first edge is done by pushing the payload
          pointer in the pbuf downwards. This is somewhat tricky since
@@ -1423,24 +1870,37 @@ tcp_receive(struct tcp_pcb *pcb)
          length.*/
 
       struct pbuf *p = inseg.p;
+
+	  /* 表示当前接收到的 tcp 分片数据包和之前已经接收到的数据包的重叠区的字节数 */
       u32_t off32 = pcb->rcv_nxt - seqno;
+	
       u16_t new_tot_len, off;
+	  
       LWIP_ASSERT("inseg.p != NULL", inseg.p);
       LWIP_ASSERT("insane offset!", (off32 < 0xffff));
+	  
       off = (u16_t)off32;
+	  
       LWIP_ASSERT("pbuf too short!", (((s32_t)inseg.p->tot_len) >= off));
+
+      /* 调整当前接收到的 tcp 分片数据包的包长度信息，把和之前已经接收到的数据包的重叠区跳过 */	  
       inseg.len -= off;
       new_tot_len = (u16_t)(inseg.p->tot_len - off);
-      while (p->len < off) {
+	  while (p->len < off) {
         off -= p->len;
         /* all pbufs up to and including this one have len==0, so tot_len is equal */
         p->tot_len = new_tot_len;
         p->len = 0;
         p = p->next;
       }
+	  
       /* cannot fail... */
       pbuf_remove_header(p, off);
+
+	  /* 调整当前接收到的 tcp 分片数据包的字序号到和之前已经接收的数据包的负载数据相接位置处 */
       inseg.tcphdr->seqno = seqno = pcb->rcv_nxt;
+
+	/* 判断当前接收到的 tcp 分片数据包是否是一个已经接收到的重复数据包，如果是重复数据包，则直接发送一个应答数据包 */
     } else {
       if (TCP_SEQ_LT(seqno, pcb->rcv_nxt)) {
         /* the whole segment is < rcv_nxt */
@@ -1454,25 +1914,37 @@ tcp_receive(struct tcp_pcb *pcb)
     /* The sequence number must be within the window (above rcv_nxt
        and below rcv_nxt + rcv_wnd) in order to be further
        processed. */
+    /* 判断当前接收到的 tcp 分片数据包是否在当前 tcp 协议控制块的接收窗口范围内 */
     if (TCP_SEQ_BETWEEN(seqno, pcb->rcv_nxt,
                         pcb->rcv_nxt + pcb->rcv_wnd - 1)) {
+                        
+      /* 判断当前接收到的 tcp 分片数据包是否和之前已经接收到的数据包正好相接 */
       if (pcb->rcv_nxt == seqno) {
         /* The incoming segment is the next in sequence. We check if
            we have to trim the end of the segment and update rcv_nxt
            and pass the data to the application. */
         tcplen = TCP_TCPLEN(&inseg);
 
+        /* 判断当前接收到的 tcp 分片数据包大小是否已经超出了当前 tcp 协议控制块的有效
+	     * 接收数据窗口大小，如果超过了有效接收数据窗口大小，则需要对当前接收到的 tcp
+	     * 分片数据包负载数据裁剪到和当前 tcp 协议控制块有效接收窗口对齐位置，并把尾部
+	     * 多余的 pbuf 释放掉 */
         if (tcplen > pcb->rcv_wnd) {
+			
           LWIP_DEBUGF(TCP_INPUT_DEBUG,
                       ("tcp_receive: other end overran receive window"
                        "seqno %"U32_F" len %"U16_F" right edge %"U32_F"\n",
                        seqno, tcplen, pcb->rcv_nxt + pcb->rcv_wnd));
+
+		  /* 清除被裁剪的数据包中的 FIN 标志 */
           if (TCPH_FLAGS(inseg.tcphdr) & TCP_FIN) {
             /* Must remove the FIN from the header as we're trimming
              * that byte of sequence-space from the packet */
             TCPH_FLAGS_SET(inseg.tcphdr, TCPH_FLAGS(inseg.tcphdr) & ~(unsigned int)TCP_FIN);
           }
+		  
           /* Adjust length of segment to fit in the window. */
+		  /* 把当前接收到的 tcp 分片数据包的 pbuf 链表的尾部多余的 pbuf 释放掉 */
           TCPWND_CHECK16(pcb->rcv_wnd);
           inseg.len = (u16_t)pcb->rcv_wnd;
           if (TCPH_FLAGS(inseg.tcphdr) & TCP_SYN) {
@@ -1480,9 +1952,12 @@ tcp_receive(struct tcp_pcb *pcb)
           }
           pbuf_realloc(inseg.p, inseg.len);
           tcplen = TCP_TCPLEN(&inseg);
+		  
           LWIP_ASSERT("tcp_receive: segment not trimmed correctly to rcv_wnd\n",
                       (seqno + tcplen) == (pcb->rcv_nxt + pcb->rcv_wnd));
         }
+
+/* 处理当前接收到的 tcp 分片数据包和当前 tcp 协议控制块乱序队列中的数据包的重叠区空间 */
 #if TCP_QUEUE_OOSEQ
         /* Received in-sequence data, adjust ooseq data if:
            - FIN has been received or
@@ -1494,6 +1969,8 @@ tcp_receive(struct tcp_pcb *pcb)
             /* Received in-order FIN means anything that was received
              * out of order must now have been received in-order, so
              * bin the ooseq queue */
+            /* 如果当前接收到的 tcp 分片数据包中包含 FIN 标志，那么之前存储在乱序数据包队列中的分片数据包
+			 * 就没有什么意义了，所以我们需要把当前 tcp 协议控制块的乱序数据包队列中的成员都释放掉 */
             while (pcb->ooseq != NULL) {
               struct tcp_seg *old_ooseq = pcb->ooseq;
               pcb->ooseq = pcb->ooseq->next;
@@ -1503,20 +1980,29 @@ tcp_receive(struct tcp_pcb *pcb)
             struct tcp_seg *next = pcb->ooseq;
             /* Remove all segments on ooseq that are covered by inseg already.
              * FIN is copied from ooseq to inseg if present. */
+            /* 如果当前接收到的 tcp 分片数据包和之前存储在乱序数据包队列中的数据包有重叠区，则把在乱序数据包
+			 * 队列中的重叠区数据释放掉，如果在这些重叠区的数据包中有 FIN 标志，则把这个 FIN 标志添加到新接收
+			 * 到的 tcp 分片数据包协议头中 */
             while (next &&
                    TCP_SEQ_GEQ(seqno + tcplen,
                                next->tcphdr->seqno + next->len)) {
               struct tcp_seg *tmp;
+			  
               /* inseg cannot have FIN here (already processed above) */
-              if ((TCPH_FLAGS(next->tcphdr) & TCP_FIN) != 0 &&
+              /* 复制乱序数据包队列中的重叠区的 FIN 标志到当前接收到的 tcp 分片数据包协议头中 */
+			  if ((TCPH_FLAGS(next->tcphdr) & TCP_FIN) != 0 &&
                   (TCPH_FLAGS(inseg.tcphdr) & TCP_SYN) == 0) {
                 TCPH_SET_FLAG(inseg.tcphdr, TCP_FIN);
                 tcplen = TCP_TCPLEN(&inseg);
               }
+				  
               tmp = next;
               next = next->next;
+
+			  /* 释放在当前 tcp 协议控制块乱序队列中“完全重叠”的 tcp 分片数据包空间 */
               tcp_seg_free(tmp);
             }
+							   
             /* Now trim right side of inseg if it overlaps with the first
              * segment on ooseq */
             if (next &&
@@ -1527,22 +2013,30 @@ tcp_receive(struct tcp_pcb *pcb)
               if (TCPH_FLAGS(inseg.tcphdr) & TCP_SYN) {
                 inseg.len -= 1;
               }
+			  
               pbuf_realloc(inseg.p, inseg.len);
               tcplen = TCP_TCPLEN(&inseg);
+			  
               LWIP_ASSERT("tcp_receive: segment not trimmed correctly to ooseq queue\n",
                           (seqno + tcplen) == next->tcphdr->seqno);
             }
+
+			/* 更新当前 tcp 协议控制块的乱序数据包队列头指针位置 */
             pcb->ooseq = next;
           }
         }
 #endif /* TCP_QUEUE_OOSEQ */
 
+        /* 更新当前 tcp 协议控制块下一次想要接收的 tcp 分片数据包的字序号 */
         pcb->rcv_nxt = seqno + tcplen;
 
         /* Update the receiver's (our) window. */
         LWIP_ASSERT("tcp_receive: tcplen > rcv_wnd\n", pcb->rcv_wnd >= tcplen);
+
+		/* 更新当前 tcp 协议控制块的接收窗口大小 */
         pcb->rcv_wnd -= tcplen;
 
+        /* 计算并更新指定的 tcp 协议控制块的接收窗口大小，并返回接收窗口右边界可以增加的字节数 */
         tcp_update_rcv_ann_wnd(pcb);
 
         /* If there is data in the segment, we make preparations to
@@ -1554,6 +2048,8 @@ tcp_receive(struct tcp_pcb *pcb)
            If the segment was a FIN, we set the TF_GOT_FIN flag that will
            be used to indicate to the application that the remote side has
            closed its end of the connection. */
+
+		/* 记录当前要分发到应用层的 tcp 分片数据包指针 */
         if (inseg.p->tot_len > 0) {
           recv_data = inseg.p;
           /* Since this pbuf now is the responsibility of the
@@ -1561,14 +2057,18 @@ tcp_receive(struct tcp_pcb *pcb)
              (mistakingly) deallocate it. */
           inseg.p = NULL;
         }
+		
         if (TCPH_FLAGS(inseg.tcphdr) & TCP_FIN) {
           LWIP_DEBUGF(TCP_INPUT_DEBUG, ("tcp_receive: received FIN.\n"));
           recv_flags |= TF_GOT_FIN;
         }
 
+
 #if TCP_QUEUE_OOSEQ
         /* We now check if we have segments on the ->ooseq queue that
            are now in sequence. */
+        /* 把当前 tcp 协议控制块的乱序数据包队列中和当前接收的 tcp 分片数据包相邻的分片数据包
+         * 进行重组，构成一个连续的、更大的数据包分发给应用层 */
         while (pcb->ooseq != NULL &&
                pcb->ooseq->tcphdr->seqno == pcb->rcv_nxt) {
 
@@ -1576,12 +2076,16 @@ tcp_receive(struct tcp_pcb *pcb)
           seqno = pcb->ooseq->tcphdr->seqno;
 
           pcb->rcv_nxt += TCP_TCPLEN(cseg);
+		  
           LWIP_ASSERT("tcp_receive: ooseq tcplen > rcv_wnd\n",
                       pcb->rcv_wnd >= TCP_TCPLEN(cseg));
+		  
           pcb->rcv_wnd -= TCP_TCPLEN(cseg);
-
+		  
+		  /* 计算并更新指定的 tcp 协议控制块的接收窗口大小，并返回接收窗口右边界可以增加的字节数 */
           tcp_update_rcv_ann_wnd(pcb);
 
+          /* 把当前 tcp 协议控制块的乱序数据包队列中的分片数据包和当前接收的 tcp 分片数据包链接到一起 */
           if (cseg->p->tot_len > 0) {
             /* Chain this pbuf onto the pbuf that we will pass to
                the application. */
@@ -1595,6 +2099,8 @@ tcp_receive(struct tcp_pcb *pcb)
             }
             cseg->p = NULL;
           }
+
+		  /* 处理在当前 tcp 协议控制块的乱序数据包队列中的 FIN 数据包 */
           if (TCPH_FLAGS(cseg->tcphdr) & TCP_FIN) {
             LWIP_DEBUGF(TCP_INPUT_DEBUG, ("tcp_receive: dequeued FIN.\n"));
             recv_flags |= TF_GOT_FIN;
@@ -1606,11 +2112,15 @@ tcp_receive(struct tcp_pcb *pcb)
           pcb->ooseq = cseg->next;
           tcp_seg_free(cseg);
         }
+
+/* 更新当前 tcp 协议控制块的 sack 数组信息 */
 #if LWIP_TCP_SACK_OUT
         if (pcb->flags & TF_SACK) {
           if (pcb->ooseq != NULL) {
             /* Some segments may have been removed from ooseq, let's remove all SACKs that
                describe anything before the new beginning of that list. */
+            /* 清除指定的 tcp 协议控制块的 sack 数组所有不“大于”指定字序号的数据对，并把所有有效的
+             * 数据对按照数组索引从小到大的顺序进行排列 */
             tcp_remove_sacks_lt(pcb, pcb->ooseq->tcphdr->seqno);
           } else if (LWIP_TCP_SACK_VALID(pcb, 0)) {
             /* ooseq has been cleared. Nothing to SACK */
@@ -1618,10 +2128,12 @@ tcp_receive(struct tcp_pcb *pcb)
           }
         }
 #endif /* LWIP_TCP_SACK_OUT */
+
 #endif /* TCP_QUEUE_OOSEQ */
 
 
         /* Acknowledge the segment(s). */
+		/* 设置指定的 tcp 协议控制块的 ACK 标志位，表示需要发送应答数据包 */
         tcp_ack(pcb);
 
 #if LWIP_TCP_SACK_OUT
@@ -1630,6 +2142,7 @@ tcp_receive(struct tcp_pcb *pcb)
              but lwIP currently does not support including SACKs in data packets. So we force
              it to respond with an empty ACK packet (only if there is at least one SACK to be sent).
              NOTE: tcp_send_empty_ack() on success clears the ACK flags (set by tcp_ack()) */
+          /* 向指定的 tcp 协议控制块的对端设备发送一个没有负载数据的应答数据包，这个数据包包含一些选项数据（直接发送数据包到 IP 层）*/
           tcp_send_empty_ack(pcb);
         }
 #endif /* LWIP_TCP_SACK_OUT */
@@ -1644,10 +2157,14 @@ tcp_receive(struct tcp_pcb *pcb)
       } else {
         /* We get here if the incoming segment is out-of-sequence. */
 
+        /* 执行到这，表示当前接收到的 tcp 分片数据包是一个乱序分片数据包 */
+
 #if TCP_QUEUE_OOSEQ
         /* We queue the segment on the ->ooseq queue. */
         if (pcb->ooseq == NULL) {
+	      /* 申请一个新的 tcp 分片数据包管理结构并把指定的 tcp 分片数据包管理数据复制到这个结构中 */
           pcb->ooseq = tcp_seg_copy(&inseg);
+		  
 #if LWIP_TCP_SACK_OUT
           if (pcb->flags & TF_SACK) {
             /* All the SACKs should be invalid, so we can simply store the most recent one: */
@@ -1655,6 +2172,7 @@ tcp_receive(struct tcp_pcb *pcb)
             pcb->rcv_sacks[0].right = seqno + inseg.len;
           }
 #endif /* LWIP_TCP_SACK_OUT */
+
         } else {
           /* If the queue is not empty, we walk through the queue and
              try to find a place where the sequence number of the
@@ -1673,8 +2191,14 @@ tcp_receive(struct tcp_pcb *pcb)
              It may start before the newly received segment (possibly adjusted below). */
           u32_t sackbeg = TCP_SEQ_LT(seqno, pcb->ooseq->tcphdr->seqno) ? seqno : pcb->ooseq->tcphdr->seqno;
 #endif /* LWIP_TCP_SACK_OUT */
+
           struct tcp_seg *next, *prev = NULL;
+
+          /* 遍历当前 tcp 协议控制块的乱序数据包队列中的每一个乱序分片数据包 */
           for (next = pcb->ooseq; next != NULL; next = next->next) {
+
+		    /* 如果当前接收到的 tcp 分片数据包和之前接收到的乱序分片数据包字序号相同
+		     * 则保留覆盖空间范围大的分片数据包 */
             if (seqno == next->tcphdr->seqno) {
               /* The sequence number of the incoming segment is the
                  same as the sequence number of the segment on
@@ -1691,6 +2215,8 @@ tcp_receive(struct tcp_pcb *pcb)
                   } else {
                     pcb->ooseq = cseg;
                   }
+
+				  /* 把指定的 tcp 分片数据包链表链接到指定的 tcp 分片数据包后，并把他们相交重叠部分的内存空间释放掉 */
                   tcp_oos_insert_segment(cseg, next);
                 }
                 break;
@@ -1701,6 +2227,9 @@ tcp_receive(struct tcp_pcb *pcb)
                 break;
               }
             } else {
+
+			  /* 如果新接收到的 tcp 分片数据包的字序号比当前 tcp 协议控制块的乱序队列中的第一个分片数据包
+			   * 字序号小，则把新接收到的 tcp 分片数据包插到乱序队列链表头部 */
               if (prev == NULL) {
                 if (TCP_SEQ_LT(seqno, next->tcphdr->seqno)) {
                   /* The sequence number of the incoming segment is lower
@@ -1710,10 +2239,16 @@ tcp_receive(struct tcp_pcb *pcb)
                   struct tcp_seg *cseg = tcp_seg_copy(&inseg);
                   if (cseg != NULL) {
                     pcb->ooseq = cseg;
+				  
+				    /* 把指定的 tcp 分片数据包链表链接到指定的 tcp 分片数据包后，并把他们相交重叠部分的内存空间释放掉 */
                     tcp_oos_insert_segment(cseg, next);
                   }
                   break;
                 }
+
+			  /* 如果当前接收到的 tcp 分片数据包字序号在当前遍历的乱序队列的前驱和后驱之间，则把当前接收到的
+			   * tcp 分片数据包插入到前驱和后驱之间，并判断当前接收的 tcp 分片数据包和前驱以及后驱是否有重叠
+			   * 区，如果有，则把重叠区裁减掉 */
               } else {
                 /*if (TCP_SEQ_LT(prev->tcphdr->seqno, seqno) &&
                   TCP_SEQ_LT(seqno, next->tcphdr->seqno)) {*/
@@ -1731,6 +2266,8 @@ tcp_receive(struct tcp_pcb *pcb)
                       pbuf_realloc(prev->p, prev->len);
                     }
                     prev->next = cseg;
+
+				    /* 把指定的 tcp 分片数据包链表链接到指定的 tcp 分片数据包后，并把他们相交重叠部分的内存空间释放掉 */
                     tcp_oos_insert_segment(cseg, next);
                   }
                   break;
@@ -1753,43 +2290,58 @@ tcp_receive(struct tcp_pcb *pcb)
               /* If the "next" segment is the last segment on the
                  ooseq queue, we add the incoming segment to the end
                  of the list. */
+              /* 如果当前接收到的 tcp 分片数据包的字序号比当前 tcp 协议控制块乱序队列中的最后一个成员的字序号还
+			   * 要大，则把当前接收到的 tcp 分片数据包插入到当前 tcp 协议控制块乱序队列尾部并把多于的数据裁减掉 */
               if (next->next == NULL &&
                   TCP_SEQ_GT(seqno, next->tcphdr->seqno)) {
+
+				/* 如果当前 tcp 协议控制块乱序队列尾部成员包含 FIN 标志，则释放当前接收到的 tcp 分片数据包 */
                 if (TCPH_FLAGS(next->tcphdr) & TCP_FIN) {
                   /* segment "next" already contains all data */
                   break;
                 }
+
+				/* 把当前接收到的 tcp 分片数据包插入到当前 tcp 协议控制块乱序队列尾部并把多于的数据裁减掉 */
                 next->next = tcp_seg_copy(&inseg);
                 if (next->next != NULL) {
+				  /* 裁剪当前 tcp 协议控制块乱序队列尾部成员和当前接收到的 tcp 分片数据包重叠区内存空间 */
                   if (TCP_SEQ_GT(next->tcphdr->seqno + next->len, seqno)) {
                     /* We need to trim the last segment. */
                     next->len = (u16_t)(seqno - next->tcphdr->seqno);
                     pbuf_realloc(next->p, next->len);
                   }
+				  
                   /* check if the remote side overruns our receive window */
+				  /* 判断当前接收到的 tcp 分片数据包是否超过了当前 tcp 协议控制块的接收窗口范围，如果超过了接收
+				   * 窗口范围，则把超过接收窗口范围的那部分空间裁减掉 */
                   if (TCP_SEQ_GT((u32_t)tcplen + seqno, pcb->rcv_nxt + (u32_t)pcb->rcv_wnd)) {
                     LWIP_DEBUGF(TCP_INPUT_DEBUG,
                                 ("tcp_receive: other end overran receive window"
                                  "seqno %"U32_F" len %"U16_F" right edge %"U32_F"\n",
                                  seqno, tcplen, pcb->rcv_nxt + pcb->rcv_wnd));
+					
                     if (TCPH_FLAGS(next->next->tcphdr) & TCP_FIN) {
                       /* Must remove the FIN from the header as we're trimming
                        * that byte of sequence-space from the packet */
                       TCPH_FLAGS_SET(next->next->tcphdr, TCPH_FLAGS(next->next->tcphdr) & ~TCP_FIN);
                     }
+					
                     /* Adjust length of segment to fit in the window. */
                     next->next->len = (u16_t)(pcb->rcv_nxt + pcb->rcv_wnd - seqno);
                     pbuf_realloc(next->next->p, next->next->len);
                     tcplen = TCP_TCPLEN(next->next);
+					
                     LWIP_ASSERT("tcp_receive: segment not trimmed correctly to rcv_wnd\n",
                                 (seqno + tcplen) == (pcb->rcv_nxt + pcb->rcv_wnd));
                   }
                 }
+				
                 break;
               }
             }
           }
 
+/* 在把当前接收到的 tcp 分片数据包插入到当前 tcp 协议控制块的乱序队列链表中后，更新当前 tcp 协议控制块的 sack 数组信息 */
 #if LWIP_TCP_SACK_OUT
           if (pcb->flags & TF_SACK) {
             if (prev == NULL) {
@@ -1806,52 +2358,75 @@ tcp_receive(struct tcp_pcb *pcb)
             } else {
               next = NULL;
             }
+			
             if (next != NULL) {
               u32_t sackend = next->tcphdr->seqno;
               for ( ; (next != NULL) && (sackend == next->tcphdr->seqno); next = next->next) {
                 sackend += next->len;
               }
+
+			  /* 向指定的 tcp 协议控制块中添加一个新的 sack 数据对信息，新添加到 sack 数据对在数组索引位置 0 处 */
               tcp_add_sack(pcb, sackbeg, sackend);
             }
           }
 #endif /* LWIP_TCP_SACK_OUT */
+
         }
+		
 #if defined(TCP_OOSEQ_BYTES_LIMIT) || defined(TCP_OOSEQ_PBUFS_LIMIT)
         {
           /* Check that the data on ooseq doesn't exceed one of the limits
              and throw away everything above that limit. */
+
+/* 获取当前协议栈在 tcp 协议控制块的乱序队列中最多可以缓存的数据字节数 */
 #ifdef TCP_OOSEQ_BYTES_LIMIT
           const u32_t ooseq_max_blen = TCP_OOSEQ_BYTES_LIMIT(pcb);
           u32_t ooseq_blen = 0;
 #endif
+
+/* 获取当前协议栈在 tcp 协议控制块的乱序队列中最多可以缓存的 pbuf 个数 */
 #ifdef TCP_OOSEQ_PBUFS_LIMIT
           const u16_t ooseq_max_qlen = TCP_OOSEQ_PBUFS_LIMIT(pcb);
           u16_t ooseq_qlen = 0;
 #endif
+
           struct tcp_seg *next, *prev = NULL;
+
+          /* 遍历当前 tcp 协议控制块乱序队列中的每一个 tcp 分片数据包，把缓存在当前 
+           * tcp 协议控制块乱序队列中多余的 tcp 分片数据包释放掉 */
           for (next = pcb->ooseq; next != NULL; prev = next, next = next->next) {
             struct pbuf *p = next->p;
             int stop_here = 0;
+
+/* 统计当前tcp 协议控制块乱序队列中的数据包的字节数 */
 #ifdef TCP_OOSEQ_BYTES_LIMIT
             ooseq_blen += p->tot_len;
             if (ooseq_blen > ooseq_max_blen) {
               stop_here = 1;
             }
 #endif
+
+/* 统计当前tcp 协议控制块乱序队列中的数据包的 pbuf 个数 */
 #ifdef TCP_OOSEQ_PBUFS_LIMIT
             ooseq_qlen += pbuf_clen(p);
             if (ooseq_qlen > ooseq_max_qlen) {
               stop_here = 1;
             }
 #endif
+
             if (stop_here) {
+				
+/* 清除指定的 tcp 协议控制块的 sack 数组所有不“小于”指定字序号的数据对，并把所有有效的
+ * 数据对按照数组索引从小到大的顺序进行排列 */
 #if LWIP_TCP_SACK_OUT
               if (pcb->flags & TF_SACK) {
                 /* Let's remove all SACKs from next's seqno up. */
                 tcp_remove_sacks_gt(pcb, next->tcphdr->seqno);
               }
 #endif /* LWIP_TCP_SACK_OUT */
+
               /* too much ooseq data, dump this and everything after it */
+              /* 把缓存在当前 tcp 协议控制块乱序队列中多余的 tcp 分片数据包释放掉 */
               tcp_segs_free(next);
               if (prev == NULL) {
                 /* first ooseq segment is too much, dump the whole queue */
@@ -1865,6 +2440,7 @@ tcp_receive(struct tcp_pcb *pcb)
           }
         }
 #endif /* TCP_OOSEQ_BYTES_LIMIT || TCP_OOSEQ_PBUFS_LIMIT */
+
 #endif /* TCP_QUEUE_OOSEQ */
 
         /* We send the ACK packet after we've (potentially) dealt with SACKs,
@@ -1884,10 +2460,20 @@ tcp_receive(struct tcp_pcb *pcb)
   }
 }
 
+/*********************************************************************************************************
+** 函数名称: tcp_get_next_optbyte
+** 功能描述: 获取当前接收到的 tcp 分片数据包的当前选项字节数据，并更新选项索引值到下一个字节位置处
+** 输	 入:
+** 输	 出: u8_t - 获取到的下一个字节选项数据
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static u8_t
 tcp_get_next_optbyte(void)
 {
+  /* 获取当前选项字节索引值，并更新选项索引值到下一个选项字节位置处 */
   u16_t optidx = tcp_optidx++;
+  
   if ((tcphdr_opt2 == NULL) || (optidx < tcphdr_opt1len)) {
     u8_t *opts = (u8_t *)tcphdr + TCP_HLEN;
     return opts[optidx];
@@ -1904,12 +2490,22 @@ tcp_get_next_optbyte(void)
  * Currently, only the MSS option is supported!
  *
  * @param pcb the tcp_pcb for which a segment arrived
- */
+ */ 
+/*********************************************************************************************************
+** 函数名称: tcp_parseopt
+** 功能描述: 解析指定 tcp 协议控制块当前接收到的 tcp 分片数据包的选项数据，并把选项数据内容
+**         : 更新到指定的 tcp 协议控制块中
+** 输	 入: pcb - 接收到选项数据的 tcp 协议控制块
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void
 tcp_parseopt(struct tcp_pcb *pcb)
 {
   u8_t data;
   u16_t mss;
+  
 #if LWIP_TCP_TIMESTAMPS
   u32_t tsval;
 #endif
@@ -1917,41 +2513,57 @@ tcp_parseopt(struct tcp_pcb *pcb)
   LWIP_ASSERT("tcp_parseopt: invalid pcb", pcb != NULL);
 
   /* Parse the TCP MSS option, if present. */
+  /* 判断当前接收到的 tcp 分片数据包是否包含选项数据 */
   if (tcphdr_optlen != 0) {
+  	
     for (tcp_optidx = 0; tcp_optidx < tcphdr_optlen; ) {
+		
+	  /* 获取当前接收到的 tcp 分片数据包的当前选项字节数据，并更新选项索引值到下一个字节位置处 */
       u8_t opt = tcp_get_next_optbyte();
+	  
       switch (opt) {
         case LWIP_TCP_OPT_EOL:
           /* End of options. */
           LWIP_DEBUGF(TCP_INPUT_DEBUG, ("tcp_parseopt: EOL\n"));
           return;
+		
         case LWIP_TCP_OPT_NOP:
           /* NOP option. */
           LWIP_DEBUGF(TCP_INPUT_DEBUG, ("tcp_parseopt: NOP\n"));
           break;
+		
         case LWIP_TCP_OPT_MSS:
           LWIP_DEBUGF(TCP_INPUT_DEBUG, ("tcp_parseopt: MSS\n"));
+
+		  /* 校验当前选项数据是否在指定的地址范围内 */
           if (tcp_get_next_optbyte() != LWIP_TCP_OPT_LEN_MSS || (tcp_optidx - 2 + LWIP_TCP_OPT_LEN_MSS) > tcphdr_optlen) {
             /* Bad length */
             LWIP_DEBUGF(TCP_INPUT_DEBUG, ("tcp_parseopt: bad length\n"));
             return;
           }
-          /* An MSS option with the right option length. */
+
+		  /* An MSS option with the right option length. */
           mss = (u16_t)(tcp_get_next_optbyte() << 8);
           mss |= tcp_get_next_optbyte();
+		  
           /* Limit the mss to the configured TCP_MSS and prevent division by zero */
           pcb->mss = ((mss > TCP_MSS) || (mss == 0)) ? TCP_MSS : mss;
           break;
+		  
 #if LWIP_WND_SCALE
         case LWIP_TCP_OPT_WS:
           LWIP_DEBUGF(TCP_INPUT_DEBUG, ("tcp_parseopt: WND_SCALE\n"));
+		  
+		  /* 校验当前选项数据是否在指定的地址范围内 */
           if (tcp_get_next_optbyte() != LWIP_TCP_OPT_LEN_WS || (tcp_optidx - 2 + LWIP_TCP_OPT_LEN_WS) > tcphdr_optlen) {
             /* Bad length */
             LWIP_DEBUGF(TCP_INPUT_DEBUG, ("tcp_parseopt: bad length\n"));
             return;
           }
+		  
           /* An WND_SCALE option with the right option length. */
           data = tcp_get_next_optbyte();
+		  
           /* If syn was received with wnd scale option,
              activate wnd scale opt, but only if this is not a retransmission */
           if ((flags & TCP_SYN) && !(pcb->flags & TF_WND_SCALE)) {
@@ -1959,8 +2571,10 @@ tcp_parseopt(struct tcp_pcb *pcb)
             if (pcb->snd_scale > 14U) {
               pcb->snd_scale = 14U;
             }
+			
             pcb->rcv_scale = TCP_RCV_SCALE;
             tcp_set_flags(pcb, TF_WND_SCALE);
+			
             /* window scaling is enabled, we can use the full receive window */
             LWIP_ASSERT("window not at default value", pcb->rcv_wnd == TCPWND_MIN16(TCP_WND));
             LWIP_ASSERT("window not at default value", pcb->rcv_ann_wnd == TCPWND_MIN16(TCP_WND));
@@ -1968,19 +2582,24 @@ tcp_parseopt(struct tcp_pcb *pcb)
           }
           break;
 #endif /* LWIP_WND_SCALE */
+
 #if LWIP_TCP_TIMESTAMPS
         case LWIP_TCP_OPT_TS:
           LWIP_DEBUGF(TCP_INPUT_DEBUG, ("tcp_parseopt: TS\n"));
+		  
+		  /* 校验当前选项数据是否在指定的地址范围内 */
           if (tcp_get_next_optbyte() != LWIP_TCP_OPT_LEN_TS || (tcp_optidx - 2 + LWIP_TCP_OPT_LEN_TS) > tcphdr_optlen) {
             /* Bad length */
             LWIP_DEBUGF(TCP_INPUT_DEBUG, ("tcp_parseopt: bad length\n"));
             return;
           }
-          /* TCP timestamp option with valid length */
+
+		  /* TCP timestamp option with valid length */
           tsval = tcp_get_next_optbyte();
           tsval |= (tcp_get_next_optbyte() << 8);
           tsval |= (tcp_get_next_optbyte() << 16);
           tsval |= (tcp_get_next_optbyte() << 24);
+		  
           if (flags & TCP_SYN) {
             pcb->ts_recent = lwip_ntohl(tsval);
             /* Enable sending timestamps in every segment now that we know
@@ -1989,25 +2608,31 @@ tcp_parseopt(struct tcp_pcb *pcb)
           } else if (TCP_SEQ_BETWEEN(pcb->ts_lastacksent, seqno, seqno + tcplen)) {
             pcb->ts_recent = lwip_ntohl(tsval);
           }
+		  
           /* Advance to next option (6 bytes already read) */
           tcp_optidx += LWIP_TCP_OPT_LEN_TS - 6;
           break;
 #endif /* LWIP_TCP_TIMESTAMPS */
+
 #if LWIP_TCP_SACK_OUT
         case LWIP_TCP_OPT_SACK_PERM:
           LWIP_DEBUGF(TCP_INPUT_DEBUG, ("tcp_parseopt: SACK_PERM\n"));
+		  
+		  /* 校验当前选项数据是否在指定的地址范围内 */
           if (tcp_get_next_optbyte() != LWIP_TCP_OPT_LEN_SACK_PERM || (tcp_optidx - 2 + LWIP_TCP_OPT_LEN_SACK_PERM) > tcphdr_optlen) {
             /* Bad length */
             LWIP_DEBUGF(TCP_INPUT_DEBUG, ("tcp_parseopt: bad length\n"));
             return;
           }
-          /* TCP SACK_PERM option with valid length */
+
+		  /* TCP SACK_PERM option with valid length */
           if (flags & TCP_SYN) {
             /* We only set it if we receive it in a SYN (or SYN+ACK) packet */
             tcp_set_flags(pcb, TF_SACK);
           }
           break;
 #endif /* LWIP_TCP_SACK_OUT */
+
         default:
           LWIP_DEBUGF(TCP_INPUT_DEBUG, ("tcp_parseopt: other\n"));
           data = tcp_get_next_optbyte();
@@ -2025,6 +2650,14 @@ tcp_parseopt(struct tcp_pcb *pcb)
   }
 }
 
+/*********************************************************************************************************
+** 函数名称: tcp_trigger_input_pcb_close
+** 功能描述: 设置全局变量 recv_flags 的 TF_CLOSED 标志位
+** 输	 入: 
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 tcp_trigger_input_pcb_close(void)
 {
@@ -2042,13 +2675,25 @@ tcp_trigger_input_pcb_close(void)
  * @param pcb the tcp_pcb for which a segment arrived
  * @param left the left side of the SACK (the first sequence number)
  * @param right the right side of the SACK (the first sequence number past this SACK)
- */
+ */ 
+/*********************************************************************************************************
+** 函数名称: tcp_add_sack
+** 功能描述: 向指定的 tcp 协议控制块中添加一个新的 sack 数据对信息，新添加到 sack 数据对在数组索引位置 0 处
+** 输	 入: pcb - 需要修改 sack 信息的 tcp 协议控制块
+**         : left - sack 数据对的左边界值
+**         : right - sack 数据对的右边界值
+**         : seq - 表示当前在 sack 数组中有效的最小字序号
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void
 tcp_add_sack(struct tcp_pcb *pcb, u32_t left, u32_t right)
 {
   u8_t i;
   u8_t unused_idx;
 
+  /* 参数合法性检查 */
   if ((pcb->flags & TF_SACK) == 0 || !TCP_SEQ_LT(left, right)) {
     return;
   }
@@ -2102,7 +2747,17 @@ tcp_add_sack(struct tcp_pcb *pcb, u32_t left, u32_t right)
  *
  * @param pcb the tcp_pcb to modify
  * @param seq the lowest sequence number to keep in SACK entries
- */
+ */ 
+/*********************************************************************************************************
+** 函数名称: tcp_remove_sacks_lt
+** 功能描述: 清除指定的 tcp 协议控制块的 sack 数组所有不“大于”指定字序号的数据对，并把所有有效的
+**         : 数据对按照数组索引从小到大的顺序进行排列
+** 输	 入: pcb - 需要修改 sack 信息的 tcp 协议控制块
+**         : seq - 表示当前在 sack 数组中有效的最小字序号
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void
 tcp_remove_sacks_lt(struct tcp_pcb *pcb, u32_t seq)
 {
@@ -2111,6 +2766,7 @@ tcp_remove_sacks_lt(struct tcp_pcb *pcb, u32_t seq)
 
   /* We run this loop for all entries, until we find the first invalid one.
      There is no point checking after that. */
+  /* 遍历当前 tcp 协议控制块的 sack 数组，把所有满足要求的 sack 数据对从前往后排列 */
   for (i = unused_idx = 0; (i < LWIP_TCP_MAX_SACK_NUM) && LWIP_TCP_SACK_VALID(pcb, i); ++i) {
     /* We only want to use SACK at index [i] if its right side is > 'seq'. */
     if (TCP_SEQ_GT(pcb->rcv_sacks[i].right, seq)) {
@@ -2118,6 +2774,7 @@ tcp_remove_sacks_lt(struct tcp_pcb *pcb, u32_t seq)
         /* We only copy it if it's not in the right spot already. */
         pcb->rcv_sacks[unused_idx] = pcb->rcv_sacks[i];
       }
+	  
       /* NOTE: It is possible that its left side is < 'seq', in which case we should adjust it. */
       if (TCP_SEQ_LT(pcb->rcv_sacks[unused_idx].left, seq)) {
         pcb->rcv_sacks[unused_idx].left = seq;
@@ -2127,6 +2784,7 @@ tcp_remove_sacks_lt(struct tcp_pcb *pcb, u32_t seq)
   }
 
   /* We also need to invalidate everything from 'unused_idx' till the end */
+  /* 把当前 tcp 协议控制块的 sack 数组中不使用的 sack 数据对设置为无效状态 */
   for (i = unused_idx; i < LWIP_TCP_MAX_SACK_NUM; ++i) {
     pcb->rcv_sacks[i].left = pcb->rcv_sacks[i].right = 0;
   }
@@ -2142,7 +2800,17 @@ tcp_remove_sacks_lt(struct tcp_pcb *pcb, u32_t seq)
  *
  * @param pcb the tcp_pcb to modify
  * @param seq the highest sequence number to keep in SACK entries
- */
+ */ 
+/*********************************************************************************************************
+** 函数名称: tcp_remove_sacks_gt
+** 功能描述: 清除指定的 tcp 协议控制块的 sack 数组所有不“小于”指定字序号的数据对，并把所有有效的
+**         : 数据对按照数组索引从小到大的顺序进行排列
+** 输	 入: pcb - 需要移除 sack 信息的 tcp 协议控制块
+**         : seq - 保留在 sack 数组中的最高字序号
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void
 tcp_remove_sacks_gt(struct tcp_pcb *pcb, u32_t seq)
 {

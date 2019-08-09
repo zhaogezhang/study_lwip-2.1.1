@@ -117,6 +117,8 @@ err_t            tcp_process_refused_data(struct tcp_pcb *pcb);
 #if 0 /* see bug #10548 */
 #define TCP_SEQ_BETWEEN(a,b,c) ((c)-(b) >= (a)-(b))
 #endif
+
+/* 判断指定的字序号 a 是否处于指定的字序号 b 和 c 之间 */
 #define TCP_SEQ_BETWEEN(a,b,c) (TCP_SEQ_GEQ(a,b) && TCP_SEQ_LEQ(a,c))
 
 #ifndef TCP_TMR_INTERVAL
@@ -160,8 +162,12 @@ err_t            tcp_process_refused_data(struct tcp_pcb *pcb);
 
 /** Flags used on input processing, not on pcb->flags
 */
+/* 表示指定的 tcp 协议控制块接收到了一个 RST（reset）数据包 */
 #define TF_RESET     (u8_t)0x08U   /* Connection was reset. */
+
 #define TF_CLOSED    (u8_t)0x10U   /* Connection was successfully closed. */
+
+/* 表示指定的 tcp 协议控制块的 tcp 连接已经接收到了 FIN 数据包 */
 #define TF_GOT_FIN   (u8_t)0x20U   /* Connection was closed by the remote end. */
 
 
@@ -172,7 +178,7 @@ err_t            tcp_process_refused_data(struct tcp_pcb *pcb);
 #define TCP_EVENT_SENT(pcb,space,ret) ret = lwip_tcp_event((pcb)->callback_arg, (pcb),\
                    LWIP_EVENT_SENT, NULL, space, ERR_OK)
 #define TCP_EVENT_RECV(pcb,p,err,ret) ret = lwip_tcp_event((pcb)->callback_arg, (pcb),\
-                LWIP_EVENT_RECV, (p), 0, (err))
+                LWIP_EVENT_RECV, (p), 0, (err))          
 #define TCP_EVENT_CLOSED(pcb,ret) ret = lwip_tcp_event((pcb)->callback_arg, (pcb),\
                 LWIP_EVENT_RECV, NULL, 0, ERR_OK)
 #define TCP_EVENT_CONNECTED(pcb,err,ret) ret = lwip_tcp_event((pcb)->callback_arg, (pcb),\
@@ -188,6 +194,7 @@ err_t            tcp_process_refused_data(struct tcp_pcb *pcb);
 
 #else /* LWIP_EVENT_API */
 
+/* 通过用户注册在指定的 tcp 协议控制块中的回调函数通知应用层成功建立了 tcp 连接 */
 #define TCP_EVENT_ACCEPT(lpcb,pcb,arg,err,ret)                 \
   do {                                                         \
     if((lpcb)->accept != NULL)                                 \
@@ -202,6 +209,7 @@ err_t            tcp_process_refused_data(struct tcp_pcb *pcb);
     else (ret) = ERR_OK;                                       \
   } while (0)
 
+/* 通过用户注册在指定的 tcp 协议控制块中的回调函数分发指定的 tcp 协议控制块的指定数据包到应用层协议中 */
 #define TCP_EVENT_RECV(pcb,p,err,ret)                          \
   do {                                                         \
     if((pcb)->recv != NULL) {                                  \
@@ -211,6 +219,7 @@ err_t            tcp_process_refused_data(struct tcp_pcb *pcb);
     }                                                          \
   } while (0)
 
+/* 通过用户注册在指定的 tcp 协议控制块中的回调函数通知应用层关闭了 tcp 连接 */
 #define TCP_EVENT_CLOSED(pcb,ret)                                \
   do {                                                           \
     if(((pcb)->recv != NULL)) {                                  \
@@ -220,6 +229,7 @@ err_t            tcp_process_refused_data(struct tcp_pcb *pcb);
     }                                                            \
   } while (0)
 
+/* 通过用户注册在指定的 tcp 协议控制块中的回调函数通知应用层成功建立了 tcp 连接 */
 #define TCP_EVENT_CONNECTED(pcb,err,ret)                         \
   do {                                                           \
     if((pcb)->connected != NULL)                                 \
@@ -259,7 +269,7 @@ struct tcp_seg {
   /* 在把 tcp 分片数据包放入一个队列中的时候，通过这个指针把 tcp 分片数据包链接在一起 */
   struct tcp_seg *next;    /* used when putting segments on a queue */
 
-  /* 表示 tcp 分片数据包的负载数据起始地址（包含 tcp 数据包协议头和 tcp 数据包负载数据），具体见 tcp_create_segment 函数 */
+  /* 表示 tcp 分片数据包的负载数据起始地址且这个指针不可移动（包含 tcp 数据包协议头和 tcp 数据包负载数据），具体见 tcp_create_segment 函数 */
   struct pbuf *p;          /* buffer containing data + TCP header */
 
   /* 表示 tcp 分片数据包的数据长度，包括 tcp 协议头和 tcp 负载数据，但是不包括协议头中的“选项”数据 */
@@ -301,6 +311,7 @@ struct tcp_seg {
   struct tcp_hdr *tcphdr;  /* the TCP header */
 };
 
+/* 当前协议栈支持的 tcp 协议头中的选项数据类型 */
 #define LWIP_TCP_OPT_EOL        0
 #define LWIP_TCP_OPT_NOP        1
 #define LWIP_TCP_OPT_MSS        2
@@ -309,12 +320,14 @@ struct tcp_seg {
 #define LWIP_TCP_OPT_TS         8
 
 #define LWIP_TCP_OPT_LEN_MSS    4
+
 #if LWIP_TCP_TIMESTAMPS
 #define LWIP_TCP_OPT_LEN_TS     10
 #define LWIP_TCP_OPT_LEN_TS_OUT 12 /* aligned for output (includes NOP padding) */
 #else
 #define LWIP_TCP_OPT_LEN_TS_OUT 0
 #endif
+
 #if LWIP_WND_SCALE
 #define LWIP_TCP_OPT_LEN_WS     3
 #define LWIP_TCP_OPT_LEN_WS_OUT 4 /* aligned for output (includes NOP padding) */
@@ -418,6 +431,7 @@ extern struct tcp_pcb ** const tcp_pcb_lists[NUM_TCP_PCB_LISTS];
 
 #else /* LWIP_DEBUG */
 
+/* 把指定的 tcp 协议控制块注册到指定的 tcp 协议控制块链表中 */
 #define TCP_REG(pcbs, npcb)                        \
   do {                                             \
     (npcb)->next = *pcbs;                          \
@@ -425,6 +439,7 @@ extern struct tcp_pcb ** const tcp_pcb_lists[NUM_TCP_PCB_LISTS];
     tcp_timer_needed();                            \
   } while (0)
 
+/* 把指定的 tcp 协议控制块从指定的 tcp 协议控制块链表上移除 */
 #define TCP_RMV(pcbs, npcb)                        \
   do {                                             \
     if(*(pcbs) == (npcb)) {                        \
@@ -446,18 +461,23 @@ extern struct tcp_pcb ** const tcp_pcb_lists[NUM_TCP_PCB_LISTS];
 
 #endif /* LWIP_DEBUG */
 
+/* 把指定的 tcp 协议控制块插入到当前协议栈的 tcp_active_pcbs 链表中 */
 #define TCP_REG_ACTIVE(npcb)                       \
   do {                                             \
     TCP_REG(&tcp_active_pcbs, npcb);               \
     tcp_active_pcbs_changed = 1;                   \
   } while (0)
 
+/* 把指定的 tcp 协议控制块从当前协议栈的 tcp_active_pcbs 链表中移除 */
 #define TCP_RMV_ACTIVE(npcb)                       \
   do {                                             \
     TCP_RMV(&tcp_active_pcbs, npcb);               \
     tcp_active_pcbs_changed = 1;                   \
   } while (0)
 
+/* 把指定的 tcp 协议控制块从当前协议栈的 tcp_active_pcbs 链表中移除并释放这个 tcp 协议控制块
+ * 的所有缓存数据、把这个 tcp 协议控制块的延迟发送应答数据包立即发送出去，然后设置这个 tcp 协
+ * 议控制块的状态和本地端口号分别为 CLOSED 和 0  */
 #define TCP_PCB_REMOVE_ACTIVE(pcb)                 \
   do {                                             \
     tcp_pcb_remove(&tcp_active_pcbs, pcb);         \
@@ -474,6 +494,7 @@ void tcp_segs_free(struct tcp_seg *seg);
 void tcp_seg_free(struct tcp_seg *seg);
 struct tcp_seg *tcp_seg_copy(struct tcp_seg *seg);
 
+/* 设置指定的 tcp 协议控制块的 ACK 标志位，表示需要发送应答数据包 */
 #define tcp_ack(pcb)                               \
   do {                                             \
     if((pcb)->flags & TF_ACK_DELAY) {              \
@@ -485,6 +506,7 @@ struct tcp_seg *tcp_seg_copy(struct tcp_seg *seg);
     }                                              \
   } while (0)
 
+/* 设置指定 tcp 协议控制块的 TF_ACK_NOW 标志位 */
 #define tcp_ack_now(pcb)                           \
   tcp_set_flags(pcb, TF_ACK_NOW)
 
@@ -507,6 +529,8 @@ void  tcp_trigger_input_pcb_close(void);
 #if TCP_CALCULATE_EFF_SEND_MSS
 u16_t tcp_eff_send_mss_netif(u16_t sendmss, struct netif *outif,
                              const ip_addr_t *dest);
+
+/* 通过当前 tcp mss 和指定网络接口的 mtu 计算到指定目的 IP 地址处的有效 mss */
 #define tcp_eff_send_mss(sendmss, src, dest) \
     tcp_eff_send_mss_netif(sendmss, ip_route(src, dest), dest)
 #endif /* TCP_CALCULATE_EFF_SEND_MSS */

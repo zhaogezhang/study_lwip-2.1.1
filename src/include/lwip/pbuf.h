@@ -202,6 +202,7 @@ typedef enum {
 
 
 /** indicates this packet's data should be immediately passed to the application */
+/* 表示当前接收到的数据包应该立即分发到应用层 */
 #define PBUF_FLAG_PUSH      0x01U
 
 /** indicates this is a custom pbuf: pbuf_free calls pbuf_custom->custom_free_function()

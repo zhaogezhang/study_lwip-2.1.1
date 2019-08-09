@@ -98,7 +98,7 @@ PACK_STRUCT_END
 /* 获取 tcp 协议头中的协议控制位字段值 */
 #define TCPH_FLAGS(phdr)  ((u8_t)((lwip_ntohs((phdr)->_hdrlen_rsvd_flags) & TCP_FLAGS)))
 
-/* 设置 tcp 协议头中的协议头长度字段值，单位是 4 个 8 位字节 */
+/* 设置 tcp 协议头中的协议头长度字段值（包含常规协议头和选项数据），单位是 4 个 8 位字节 */
 #define TCPH_HDRLEN_SET(phdr, len) (phdr)->_hdrlen_rsvd_flags = lwip_htons(((len) << 12) | TCPH_FLAGS(phdr))
 
 /* 设置 tcp 协议头中的协议控制位字段值（清空原来的，设置成新的）*/

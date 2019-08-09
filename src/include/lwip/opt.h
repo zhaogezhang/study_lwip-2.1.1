@@ -1269,7 +1269,7 @@
  * will be TCP_WND >> TCP_RCV_SCALE
  */
 /* 表示当前协议栈 tcp 窗口大小，需要注意的是，如果启用了 TCP_RCV_SCALE 选项
- * 那么扩展之后的窗口打下，所以 tcp 协议头中的 Window 字段值 = TCP_WND >> TCP_RCV_SCALE */
+ * 这个值表示的是扩展之后的窗口大下，所以 tcp 协议头中的 Window 字段值 = TCP_WND >> TCP_RCV_SCALE */
 #if !defined TCP_WND || defined __DOXYGEN__
 #define TCP_WND                         (4 * TCP_MSS)
 #endif
@@ -1285,6 +1285,10 @@
  * TCP_SYNMAXRTX: Maximum number of retransmissions of SYN segments.
  */
 #if !defined TCP_SYNMAXRTX || defined __DOXYGEN__
+/* 在我们向对端设备发送连接请求的 SYN 数据包时，如果对端设备没有直接接受连接请求，那么就会仅仅
+ * 发送一个 ACK 应答数据包，而不是 SYN|ACK 应答数据包，我们在接收到一个仅仅包含 ACK 的应答数据
+ * 包的时候，需要尝试重新发送连接请求的 SYN 数据包，这个宏定义表示的是我们允许连续发送的 SYN 
+ * 数据包的个数 */
 #define TCP_SYNMAXRTX                   6
 #endif
 
@@ -1294,6 +1298,7 @@
  */
 /* OOSEQ - out of sequence */
 #if !defined TCP_QUEUE_OOSEQ || defined __DOXYGEN__
+/* TCP_QUEUE_OOSEQ=1 表示 tcp 会把接收到的乱序分片数据包缓冲在队列中 */
 #define TCP_QUEUE_OOSEQ                 LWIP_TCP
 #endif
 
@@ -1402,6 +1407,7 @@
  * TCP_OOSEQ_MAX_BYTES==1.
  * Use this to override TCP_OOSEQ_MAX_BYTES to a dynamic value per pcb.
  */
+/* 表示当前协议栈在 tcp 协议控制块的乱序队列中最多可以缓存的数据字节数 */
 #if !defined TCP_OOSEQ_BYTES_LIMIT
 #if TCP_OOSEQ_MAX_BYTES
 #define TCP_OOSEQ_BYTES_LIMIT(pcb)      TCP_OOSEQ_MAX_BYTES
@@ -1425,6 +1431,7 @@
  * TCP_OOSEQ_MAX_PBUFS==1.
  * Use this to override TCP_OOSEQ_MAX_PBUFS to a dynamic value per pcb.
  */
+/* 表示当前协议栈在 tcp 协议控制块的乱序队列中最多可以缓存的 pbuf 个数 */
 #if !defined TCP_OOSEQ_PBUFS_LIMIT
 #if TCP_OOSEQ_MAX_PBUFS
 #define TCP_OOSEQ_PBUFS_LIMIT(pcb)      TCP_OOSEQ_MAX_PBUFS
@@ -2842,6 +2849,7 @@
  * - the 32-bit Initial Sequence Number to use for the new TCP connection.
  */
 #ifdef __DOXYGEN__
+/* 用户实现的自定义接口函数，用来为新建立的 tcp 连接分配 ISN（Initial Sequence Number）*/
 #define LWIP_HOOK_TCP_ISN(local_ip, local_port, remote_ip, remote_port)
 #endif
 
@@ -2872,6 +2880,7 @@
  * state or any pcb lists) from this callback!
  */
 #ifdef __DOXYGEN__
+/* 用户实现的自定义接口函数，用来拦截当前协议栈接收到的所有 tcp 分片数据包 */
 #define LWIP_HOOK_TCP_INPACKET_PCB(pcb, hdr, optlen, opt1len, opt2, p)
 #endif
 

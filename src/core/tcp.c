@@ -124,7 +124,7 @@
  *                              当前数据包的第一个负载字节数据表示的是初始字节号
  *   应答字节号（Acknowledgment Number）：在 ACK 控制位被置位的时候有效，表示接收端下一次希望接收的数据包的字节号
  *                                        在建立连接之后，这个位一直有效
- *   负载数据偏移量（Data Offset）：表示当前数据包负载数据从包头开始的偏移量（即协议头长度），单位是 4 个 8 位字节
+ *   负载数据偏移量（Data Offset）：表示当前数据包负载数据从包头开始的偏移量（即常规协议头和选项数据长度），单位是 4 个 8 位字节
  *   保留位（Reserved）：必须设置为 0
  *   紧急数据控制位（URG）：表示紧急指针字段（Urgent Pointer）数据有效且当前数据包负载数据起始位置处携带的是“紧急”数据
  *   应答字节号控制位（ACK）：表示应答字节号字段（Acknowledgment Number）数据有效
@@ -179,10 +179,10 @@
  *
  *   时间戳选项：可以用来计算数据包往返时延，格式如下：
  *               详情见链接：https://tools.ietf.org/html/rfc1323
- *   +-------+-------+---------------------+---------------------+
- *   |Kind=8 |	10	 |	 TS Value (TSval)  |TS Echo Reply (TSecr)|
- *   +-------+-------+---------------------+---------------------+
- *  	 1		 1				4					  4
+ *   +--------+---------+---------------------+---------------------+
+ *   | Kind=8 |Length=10|   TS Value (TSval)  |TS Echo Reply (TSecr)|
+ *   +--------+---------+---------------------+---------------------+
+ *  	 1		   1			  4					     4
  *
  *   选择确认允许选项：表示当前设备支持 sack 功能，仅在 SYN 数据包中使用，格式如下：
  *                     详情见链接：https://tools.ietf.org/html/draft-sabatini-tcp-sack-01
@@ -398,6 +398,7 @@ struct tcp_pcb **const tcp_pcb_lists[] = {&tcp_listen_pcbs.pcbs, &tcp_bound_pcbs
          &tcp_active_pcbs, &tcp_tw_pcbs
 };
 
+/* 表示当前系统的 tcp_active_pcbs 链表的成员结构是否发生了变化（添加或者移除）*/
 u8_t tcp_active_pcbs_changed;
 
 /** Timer counter to handle calling slow-timer from tcp_tmr() */
@@ -490,7 +491,7 @@ tcp_tmr(void)
   /* 调用 tcp 模块的快速软件定时器 */
   tcp_fasttmr();
 
-  /* 调用 tcp 模块的慢速软件定时器 */
+  /* 调用 tcp 模块的慢速软件定时器，慢速软件定时器调用周期是快速软件定时器的二倍 */
   if (++tcp_timer & 1) {
     /* Call tcp_slowtmr() every 500 ms, i.e., every other timer
        tcp_tmr() is called. */
@@ -646,7 +647,16 @@ tcp_backlog_accepted(struct tcp_pcb *pcb)
  * @param pcb the tcp_pcb to close
  * @return ERR_OK if connection has been closed
  *         another err_t if closing failed and pcb is not freed
- */
+ */ 
+/*********************************************************************************************************
+** 函数名称: tcp_close_shutdown
+** 功能描述: 关闭指定的 tcp 协议控制块的发送数据端连接
+** 输	 入: pcb - 需要关闭发送端连接的 tcp 协议控制块
+**         : rst_on_unacked_data - 表示是否需要发送 reset 数据包到对端设备
+** 输	 出: err_t - 操作状态
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static err_t
 tcp_close_shutdown(struct tcp_pcb *pcb, u8_t rst_on_unacked_data)
 {
@@ -660,16 +670,23 @@ tcp_close_shutdown(struct tcp_pcb *pcb, u8_t rst_on_unacked_data)
 
       /* don't call tcp_abort here: we must not deallocate the pcb since
          that might not be expected when calling tcp_close */
+      /* 根据函数参数构建一个 tcp reset 控制数据包并发送到对端设备处，复位指定的 tpc 连接 */
       tcp_rst(pcb, pcb->snd_nxt, pcb->rcv_nxt, &pcb->local_ip, &pcb->remote_ip,
               pcb->local_port, pcb->remote_port);
 
+      /* 清空指定的、不是处于完全关闭状态的 tcp 协议控制块的所有缓存数据 */
       tcp_pcb_purge(pcb);
+	  
+	  /* 把当前 tcp 协议控制块从当前协议栈的 tcp_active_pcbs 链表中移除 */
       TCP_RMV_ACTIVE(pcb);
+	  
       /* Deallocate the pcb since we already sent a RST for it */
       if (tcp_input_pcb == pcb) {
         /* prevent using a deallocated pcb: free it from tcp_input later */
+	    /* 设置全局变量 recv_flags 的 TF_CLOSED 标志位 */
         tcp_trigger_input_pcb_close();
       } else {
+		/* 释放指定的 MEMP_TCP_PCB 类型的 tcp 协议控制块结构 */
         tcp_free(pcb);
       }
       return ERR_OK;
@@ -678,6 +695,7 @@ tcp_close_shutdown(struct tcp_pcb *pcb, u8_t rst_on_unacked_data)
 
   /* - states which free the pcb are handled here,
      - states which send FIN and change state are handled in tcp_close_shutdown_fin() */
+  /* 根据当前 tcp 协议控制块的状态执行相应的关闭 tcp 连接的操作 */
   switch (pcb->state) {
     case CLOSED:
       /* Closing a pcb in the CLOSED state might seem erroneous,
@@ -687,27 +705,55 @@ tcp_close_shutdown(struct tcp_pcb *pcb, u8_t rst_on_unacked_data)
        * or for a pcb that has been used and then entered the CLOSED state
        * is erroneous, but this should never happen as the pcb has in those cases
        * been freed, and so any remaining handles are bogus. */
-      if (pcb->local_port != 0) {
+      if (pcb->local_port != 0) {	  	
+	    /* 把指定的 tcp 协议控制块从 tcp_bound_pcbs 协议控制块链表上移除 */
         TCP_RMV(&tcp_bound_pcbs, pcb);
       }
+      /* 释放指定的 MEMP_TCP_PCB 类型的 tcp 协议控制块结构 */
       tcp_free(pcb);
       break;
     case LISTEN:
+	  /* 关闭指定的处于“监听”状态的 tcp 协议控制块，清除系统内所有和这个 tcp 协议控制块相关的信息 */
       tcp_listen_closed(pcb);
+
+	  /* 把指定的 tcp 协议控制块从 tcp_listen_pcbs tcp 协议控制块链表上移除，并释放这个 tcp 协议
+       * 控制块的所有缓存数据、把这个 tcp 协议控制块的延迟发送应答数据包立即发送出去，然后设置这
+       * 个 tcp 协议控制块的状态和本地端口号分别为 CLOSED 和 0 */
       tcp_pcb_remove(&tcp_listen_pcbs.pcbs, pcb);
+
+	  /* 释放指定的 MEMP_TCP_PCB_LISTEN 类型的 tcp 协议控制块结构 */
       tcp_free_listen(pcb);
       break;
-    case SYN_SENT:
+    case SYN_SENT:		
+	  /* 把指定的 tcp 协议控制块从当前协议栈的 tcp_active_pcbs 链表中移除并释放这个 tcp 协议控制块
+	   * 的所有缓存数据、把这个 tcp 协议控制块的延迟发送应答数据包立即发送出去，然后设置这个 tcp 协
+	   * 议控制块的状态和本地端口号分别为 CLOSED 和 0 */
       TCP_PCB_REMOVE_ACTIVE(pcb);
-      tcp_free(pcb);
+
+      /* 释放指定的 MEMP_TCP_PCB 类型的 tcp 协议控制块结构 */
+	  tcp_free(pcb);
+	
       MIB2_STATS_INC(mib2.tcpattemptfails);
       break;
     default:
+	  /* 根据指定 tcp 协议控制块状态向这个协议控制块的未发送数据队列中添加一个 FIN 数据包，并更新
+       * 这个协议控制块到下一个状态（tcp 状态机的下一个状态），同时尝试把这个协议控制块的未发送数
+       * 据队列中的所有分片数据包发送出去 */
       return tcp_close_shutdown_fin(pcb);
   }
   return ERR_OK;
 }
 
+/*********************************************************************************************************
+** 函数名称: tcp_close_shutdown_fin
+** 功能描述: 根据指定 tcp 协议控制块状态向这个协议控制块的未发送数据队列中添加一个 FIN 数据包，并更新
+**         : 这个协议控制块到下一个状态（tcp 状态机的下一个状态），同时尝试把这个协议控制块的未发送数
+**         : 据队列中的所有分片数据包发送出去
+** 输	 入: pcb - 需要发送 FIN 数据包的 tcp 协议控制块
+** 输	 出: err_t - 操作状态
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static err_t
 tcp_close_shutdown_fin(struct tcp_pcb *pcb)
 {
@@ -716,21 +762,25 @@ tcp_close_shutdown_fin(struct tcp_pcb *pcb)
 
   switch (pcb->state) {
     case SYN_RCVD:
+	  /* 向当前的 tcp 协议控制块的未发送数据队列中添加一个 FIN 数据包 */
       err = tcp_send_fin(pcb);
       if (err == ERR_OK) {
+	  	/* 减小指定的 tcp 协议控制块所属监听者的 backlog 计数值 */
         tcp_backlog_accepted(pcb);
         MIB2_STATS_INC(mib2.tcpattemptfails);
         pcb->state = FIN_WAIT_1;
       }
       break;
     case ESTABLISHED:
+	  /* 向当前的 tcp 协议控制块的未发送数据队列中添加一个 FIN 数据包 */
       err = tcp_send_fin(pcb);
       if (err == ERR_OK) {
         MIB2_STATS_INC(mib2.tcpestabresets);
         pcb->state = FIN_WAIT_1;
       }
       break;
-    case CLOSE_WAIT:
+    case CLOSE_WAIT:		
+	  /* 向当前的 tcp 协议控制块的未发送数据队列中添加一个 FIN 数据包 */
       err = tcp_send_fin(pcb);
       if (err == ERR_OK) {
         MIB2_STATS_INC(mib2.tcpestabresets);
@@ -748,9 +798,14 @@ tcp_close_shutdown_fin(struct tcp_pcb *pcb)
        Since we don't really have to ensure all data has been sent when tcp_close
        returns (unsent data is sent from tcp timer functions, also), we don't care
        for the return value of tcp_output for now. */
+    /* 尝试发送当前 tcp 协议控制块的未发送数据队列中的分片数据包数据，因为在这个函数返回时
+     * 并不保证把指定的 tcp 协议控制块未发送数据队列中的所有数据包全部发送出去，可能会延迟
+     * 发送，所以如果我们需要在 tcp_close 函数返回前确保当前 tcp 协议控制块的所有未发送数据
+     * 包能够全部发送出去，则需要判断 tcp_output 函数的返回值，根据返回值状态执行对应操作 */
     tcp_output(pcb);
   } else if (err == ERR_MEM) {
-    /* Mark this pcb for closing. Closing is retried from tcp_tmr. */
+    /* Mark this pcb for closing. Closing is retried from tcp_tmr. */  
+	/* 表示当前 tcp 协议控制块发送的 FIN 数据包发送失败，需要在 tcp_tmr 定时器中通过检查这个标志重新发送 */
     tcp_set_flags(pcb, TF_CLOSEPEND);
     /* We have to return ERR_OK from here to indicate to the callers that this
        pcb should not be used any more as it will be freed soon via tcp_tmr.
@@ -782,7 +837,16 @@ tcp_close_shutdown_fin(struct tcp_pcb *pcb)
  * @param pcb the tcp_pcb to close
  * @return ERR_OK if connection has been closed
  *         another err_t if closing failed and pcb is not freed
- */
+ */ 
+/*********************************************************************************************************
+** 函数名称: tcp_close
+** 功能描述: 关闭指定的 tcp 协议控制块的发送数据方向的 tcp 连接，如果当前 tcp 状态不是 LISTEN，同时把
+**         : 接收数据方向的 tcp 连接也关闭
+** 输	 入: pcb - 需要关闭 tcp 连接的 tcp 协议控制块
+** 输	 出: err_t - 操作状态
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 err_t
 tcp_close(struct tcp_pcb *pcb)
 {
@@ -813,7 +877,18 @@ tcp_close(struct tcp_pcb *pcb)
  * @param shut_tx shut down send side if this is != 0
  * @return ERR_OK if shutdown succeeded (or the PCB has already been shut down)
  *         another err_t on error.
- */
+ */ 
+/*********************************************************************************************************
+** 函数名称: tcp_shutdown
+** 功能描述: 关闭指定的 tcp 协议控制块的指定方向（因为 tcp 连接是全双工模式，所以它的 tcp 连接包括收发
+**         : 数据两个方向）的 tcp 连接
+** 输	 入: pcb - 需要关闭连接的 tcp 协议控制块
+**         : shut_rx - 表示是否关闭当前 tcp 协议控制块的“接收”端连接
+**         : shut_tx - 表示是否关闭当前 tcp 协议控制块的“发送”端连接
+** 输	 出: err_t - 操作状态
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 err_t
 tcp_shutdown(struct tcp_pcb *pcb, int shut_rx, int shut_tx)
 {
@@ -821,22 +896,31 @@ tcp_shutdown(struct tcp_pcb *pcb, int shut_rx, int shut_tx)
 
   LWIP_ERROR("tcp_shutdown: invalid pcb", pcb != NULL, return ERR_ARG);
 
+  /* 判断指定的 tcp 协议控制块状态是否适合执行关闭连接操作 */
   if (pcb->state == LISTEN) {
     return ERR_CONN;
   }
+
+  /* 关闭当前 tcp 协议控制块的“接收”数据端连接 */
   if (shut_rx) {
     /* shut down the receive side: set a flag not to receive any more data... */
     tcp_set_flags(pcb, TF_RXCLOSED);
     if (shut_tx) {
       /* shutting down the tx AND rx side is the same as closing for the raw API */
+	  /* 关闭指定的 tcp 协议控制块的发送数据端连接 */
       return tcp_close_shutdown(pcb, 1);
     }
+	
     /* ... and free buffered data */
+	/* 在我们关闭 tcp 协议控制块的接收数据端连接的时候，如果在协议栈中还有已经接收但是
+	 * 应用层还未处理的数据包，则直接丢弃这些数据包 */
     if (pcb->refused_data != NULL) {
       pbuf_free(pcb->refused_data);
       pcb->refused_data = NULL;
     }
   }
+  
+  /* 关闭当前 tcp 协议控制块的“发送”数据端连接 */
   if (shut_tx) {
     /* This can't happen twice since if it succeeds, the pcb's state is changed.
        Only close in these states as the others directly deallocate the PCB */
@@ -861,14 +945,25 @@ tcp_shutdown(struct tcp_pcb *pcb, int shut_rx, int shut_tx)
  *
  * @param pcb the tcp_pcb to abort
  * @param reset boolean to indicate whether a reset should be sent
- */
+ */ 
+/*********************************************************************************************************
+** 函数名称: tcp_abandon
+** 功能描述: 
+** 输	 入: pcb - 
+**         : reset - 
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 tcp_abandon(struct tcp_pcb *pcb, int reset)
 {
   u32_t seqno, ackno;
+  
 #if LWIP_CALLBACK_API
   tcp_err_fn errf;
 #endif /* LWIP_CALLBACK_API */
+
   void *errf_arg;
 
   LWIP_ASSERT_CORE_LOCKED();
@@ -878,6 +973,7 @@ tcp_abandon(struct tcp_pcb *pcb, int reset)
   /* pcb->state LISTEN not allowed here */
   LWIP_ASSERT("don't call tcp_abort/tcp_abandon for listen-pcbs",
               pcb->state != LISTEN);
+  
   /* Figure out on which TCP PCB list we are, and remove us. If we
      are in an active state, call the receive function associated with
      the PCB with a NULL argument, and send an RST to the remote end. */
@@ -890,10 +986,13 @@ tcp_abandon(struct tcp_pcb *pcb, int reset)
     enum tcp_state last_state;
     seqno = pcb->snd_nxt;
     ackno = pcb->rcv_nxt;
+	
 #if LWIP_CALLBACK_API
     errf = pcb->errf;
 #endif /* LWIP_CALLBACK_API */
+
     errf_arg = pcb->callback_arg;
+
     if (pcb->state == CLOSED) {
       if (pcb->local_port != 0) {
         /* bound, not yet opened */
@@ -904,22 +1003,27 @@ tcp_abandon(struct tcp_pcb *pcb, int reset)
       local_port = pcb->local_port;
       TCP_PCB_REMOVE_ACTIVE(pcb);
     }
+	
     if (pcb->unacked != NULL) {
       tcp_segs_free(pcb->unacked);
     }
+	
     if (pcb->unsent != NULL) {
       tcp_segs_free(pcb->unsent);
     }
+	
 #if TCP_QUEUE_OOSEQ
     if (pcb->ooseq != NULL) {
       tcp_segs_free(pcb->ooseq);
     }
 #endif /* TCP_QUEUE_OOSEQ */
+
     tcp_backlog_accepted(pcb);
     if (send_rst) {
       LWIP_DEBUGF(TCP_RST_DEBUG, ("tcp_abandon: sending RST\n"));
       tcp_rst(pcb, seqno, ackno, &pcb->local_ip, &pcb->remote_ip, local_port, pcb->remote_port);
     }
+	
     last_state = pcb->state;
     tcp_free(pcb);
     TCP_EVENT_ERR(last_state, errf, errf_arg, ERR_ABRT);
@@ -936,7 +1040,16 @@ tcp_abandon(struct tcp_pcb *pcb, int reset)
  * or you will risk accessing deallocated memory or memory leaks!
  *
  * @param pcb the tcp pcb to abort
- */
+ */ 
+/*********************************************************************************************************
+** 函数名称: tcp_abort
+** 功能描述: 通过发送 reset 数据包来终止指定的 tcp 协议控制块的 tcp 连接，并释放指定的 tcp 协议
+**         : 控制块结构占用的内存空间
+** 输	 入: pcb - 需要被终止的 tcp 协议控制块
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 tcp_abort(struct tcp_pcb *pcb)
 {
@@ -1228,15 +1341,26 @@ done:
  *
  * Returns how much extra window would be advertised if we sent an
  * update now.
- */
+ */ 
+/*********************************************************************************************************
+** 函数名称: tcp_update_rcv_ann_wnd
+** 功能描述: 计算并更新指定的 tcp 协议控制块的接收窗口大小，并返回接收窗口右边界可以增加的字节数
+** 输	 入: pcb - 需要更新接收窗口的 tcp 协议控制块
+** 输	 出: u32_t - 表示指定的 tcp 协议控制块的接收窗口右边界可以增加的字节数
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 u32_t
 tcp_update_rcv_ann_wnd(struct tcp_pcb *pcb)
 {
   u32_t new_right_edge;
 
   LWIP_ASSERT("tcp_update_rcv_ann_wnd: invalid pcb", pcb != NULL);
+
+  /* 计算当前 tcp 协议控制块的接收窗口的右边界值 */
   new_right_edge = pcb->rcv_nxt + pcb->rcv_wnd;
 
+  /* 计算并更新指定的 tcp 协议控制块的接收窗口大小，并返回接收窗口右边界可以增加的字节数 */
   if (TCP_SEQ_GEQ(new_right_edge, pcb->rcv_ann_right_edge + LWIP_MIN((TCP_WND / 2), pcb->mss))) {
     /* we can advertise more window */
     pcb->rcv_ann_wnd = pcb->rcv_wnd;
@@ -1249,9 +1373,11 @@ tcp_update_rcv_ann_wnd(struct tcp_pcb *pcb)
     } else {
       /* keep the right edge of window constant */
       u32_t new_rcv_ann_wnd = pcb->rcv_ann_right_edge - pcb->rcv_nxt;
+	  
 #if !LWIP_WND_SCALE
       LWIP_ASSERT("new_rcv_ann_wnd <= 0xffff", new_rcv_ann_wnd <= 0xffff);
 #endif
+
       pcb->rcv_ann_wnd = (tcpwnd_size_t)new_rcv_ann_wnd;
     }
     return 0;
@@ -1848,6 +1974,14 @@ tcp_txnow(void)
 }
 
 /** Pass pcb->refused_data to the recv callback */
+/*********************************************************************************************************
+** 函数名称: tcp_process_refused_data
+** 功能描述: 处理指定 tcp 协议控制块未处理的 refused 数据，尝试把数据分发到应用层协议中
+** 输	 入: pcb - 需要处理 refused 数据的 tcp 协议控制块
+** 输	 出: err_t - 执行状态
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 err_t
 tcp_process_refused_data(struct tcp_pcb *pcb)
 {
@@ -1860,34 +1994,51 @@ tcp_process_refused_data(struct tcp_pcb *pcb)
 #if TCP_QUEUE_OOSEQ && LWIP_WND_SCALE
   while (pcb->refused_data != NULL)
 #endif /* TCP_QUEUE_OOSEQ && LWIP_WND_SCALE */
+
   {
     err_t err;
     u8_t refused_flags = pcb->refused_data->flags;
     /* set pcb->refused_data to NULL in case the callback frees it and then
        closes the pcb */
     struct pbuf *refused_data = pcb->refused_data;
+
+/* 如果当前协议栈“支持” tcp 缓存乱序分片数据包到缓存队列，则从当前 tcp 协议控制块的
+ * refused_data 缓冲区中截取前 64KB 数据块，如果当前协议栈“不支持” tcp 缓存乱序分片
+ * 数据包到缓存队列，则拿出 refused_data 缓冲区中所有数据 */
 #if TCP_QUEUE_OOSEQ && LWIP_WND_SCALE
     pbuf_split_64k(refused_data, &rest);
     pcb->refused_data = rest;
 #else /* TCP_QUEUE_OOSEQ && LWIP_WND_SCALE */
     pcb->refused_data = NULL;
 #endif /* TCP_QUEUE_OOSEQ && LWIP_WND_SCALE */
+
     /* Notify again application with data previously received. */
     LWIP_DEBUGF(TCP_INPUT_DEBUG, ("tcp_input: notify kept packet\n"));
+
+	/* 通过用户注册在指定的 tcp 协议控制块中的回调函数分发指定的 tcp 协议控制块的指定数据包到应用层协议中 */
     TCP_EVENT_RECV(pcb, refused_data, ERR_OK, err);
+
+	/* 如果应用层接收了我们分发的数据包，并且分发的数据包是 FIN 数据包，并且
+	 * 当前 tcp 协议控制块中已经没有未处理的 refused 数据，则关闭当前 tcp 协
+	 * 议控制块的连接 */
     if (err == ERR_OK) {
       /* did refused_data include a FIN? */
       if ((refused_flags & PBUF_FLAG_TCP_FIN)
+	  	
 #if TCP_QUEUE_OOSEQ && LWIP_WND_SCALE
           && (rest == NULL)
 #endif /* TCP_QUEUE_OOSEQ && LWIP_WND_SCALE */
+
          ) {
         /* correct rcv_wnd as the application won't call tcp_recved()
            for the FIN's seqno */
         if (pcb->rcv_wnd != TCP_WND_MAX(pcb)) {
           pcb->rcv_wnd++;
         }
+		
+		/* 通过用户注册在指定的 tcp 协议控制块中的回调函数通知应用层关闭了 tcp 连接 */
         TCP_EVENT_CLOSED(pcb, err);
+		
         if (err == ERR_ABRT) {
           return ERR_ABRT;
         }
@@ -1900,14 +2051,18 @@ tcp_process_refused_data(struct tcp_pcb *pcb)
       return ERR_ABRT;
     } else {
       /* data is still refused, pbuf is still valid (go on for ACK-only packets) */
+
+/* 如果应用层协议仍然不处理 refused 数据，则把分割下来的 64KB 数据块链接到原来的数据链表上 */
 #if TCP_QUEUE_OOSEQ && LWIP_WND_SCALE
       if (rest != NULL) {
         pbuf_cat(refused_data, rest);
       }
 #endif /* TCP_QUEUE_OOSEQ && LWIP_WND_SCALE */
+
       pcb->refused_data = refused_data;
       return ERR_INPROGRESS;
     }
+	
   }
   return ERR_OK;
 }
@@ -1919,7 +2074,7 @@ tcp_process_refused_data(struct tcp_pcb *pcb)
  */
 /*********************************************************************************************************
 ** 函数名称: tcp_segs_free
-** 功能描述: 释放指定的tcp 分片数据包链表所占用的内存资源
+** 功能描述: 释放指定的 tcp 分片数据包链表所占用的内存资源
 ** 输	 入: seg - 要释放的 tcp 分片数据包链表头指针
 ** 输	 出: 
 ** 全局变量: 
@@ -1986,7 +2141,16 @@ tcp_setprio(struct tcp_pcb *pcb, u8_t prio)
  *
  * @param seg the old tcp_seg
  * @return a copy of seg
- */
+ */ 
+/*********************************************************************************************************
+** 函数名称: tcp_seg_copy
+** 功能描述: 申请一个新的 tcp 分片数据包管理结构并把指定的 tcp 分片数据包管理数据复制到这个结构中
+** 输	 入: seg - 需要复制的 tcp 分片数据包管理数据
+** 输	 出: cseg - 新申请的，复制了数据的 tcp 分片数据包管理结构
+**         : NULL - 复制失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 struct tcp_seg *
 tcp_seg_copy(struct tcp_seg *seg)
 {
@@ -2008,7 +2172,18 @@ tcp_seg_copy(struct tcp_seg *seg)
 /**
  * Default receive callback that is called if the user didn't register
  * a recv callback for the pcb.
- */
+ */ 
+/*********************************************************************************************************
+** 函数名称: tcp_recv_null
+** 功能描述: 当前协议栈默认的、用于向应用层协议分发数据的回调函数
+** 输	 入: arg - 当前回调函数的自定义参数
+**         : pcb - 接收到数据包的 tcp 协议控制块
+**         : p - 需要分发到应用层协议的数据包
+**         : err - 操作错误码
+** 输	 出: err_t - 操作状态
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 err_t
 tcp_recv_null(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
 {
@@ -2158,7 +2333,16 @@ tcp_handle_closepend(void)
  *
  * @param prio priority for the new pcb
  * @return a new tcp_pcb that initially is in state CLOSED
- */
+ */ 
+/*********************************************************************************************************
+** 函数名称: tcp_alloc
+** 功能描述: 从当前系统的 MEMP_TCP_PCB 内存池中申请一个指定优先级的 tcp 协议控制块结构
+** 输	 入: prio - 需要申请的 tcp 协议控制块的优先级
+** 输	 出: pcb - 成功申请的 tcp 协议控制块结构
+**         : NULL - 申请失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 struct tcp_pcb *
 tcp_alloc(u8_t prio)
 {
@@ -2166,6 +2350,7 @@ tcp_alloc(u8_t prio)
 
   LWIP_ASSERT_CORE_LOCKED();
 
+  /* 从当前协议栈的内存池中申请一个 tcp 协议控制块结构 */
   pcb = (struct tcp_pcb *)memp_malloc(MEMP_TCP_PCB);
   if (pcb == NULL) {
     /* Try to send FIN for all pcbs stuck in TF_CLOSEPEND first */
@@ -2214,6 +2399,7 @@ tcp_alloc(u8_t prio)
       MEMP_STATS_DEC(err, MEMP_TCP_PCB);
     }
   }
+  
   if (pcb != NULL) {
     /* zero out the whole pcb, so there is no need to initialize members to zero */
     memset(pcb, 0, sizeof(struct tcp_pcb));
@@ -2451,31 +2637,46 @@ tcp_poll(struct tcp_pcb *pcb, tcp_poll_fn poll, u8_t interval)
  * (pcb->ooseq, pcb->unsent and pcb->unacked are freed).
  *
  * @param pcb tcp_pcb to purge. The pcb itself is not deallocated!
- */
+ */ 
+/*********************************************************************************************************
+** 函数名称: tcp_pcb_purge
+** 功能描述: 清空指定的、不是处于完全关闭状态的 tcp 协议控制块的所有缓存数据
+** 输	 入: pcb - 需要释放缓存数据的 tcp 协议控制块
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 tcp_pcb_purge(struct tcp_pcb *pcb)
 {
   LWIP_ERROR("tcp_pcb_purge: invalid pcb", pcb != NULL, return);
 
+  /* 判断当前 tcp 协议控制块是否处于完全关闭状态，如果不是完全关闭状态，则执行缓存数据清理操作 */
   if (pcb->state != CLOSED &&
       pcb->state != TIME_WAIT &&
       pcb->state != LISTEN) {
 
     LWIP_DEBUGF(TCP_DEBUG, ("tcp_pcb_purge\n"));
 
+    /* 减小指定的 tcp 协议控制块所属监听者的 backlog 计数值 */
     tcp_backlog_accepted(pcb);
 
+    /* 清空当前 tcp 协议控制块之前已经接收到的、但是还没被上层（应用层）协议处理的数据包*/
     if (pcb->refused_data != NULL) {
       LWIP_DEBUGF(TCP_DEBUG, ("tcp_pcb_purge: data left on ->refused_data\n"));
       pbuf_free(pcb->refused_data);
       pcb->refused_data = NULL;
     }
+	
     if (pcb->unsent != NULL) {
       LWIP_DEBUGF(TCP_DEBUG, ("tcp_pcb_purge: not all data sent\n"));
     }
+	
     if (pcb->unacked != NULL) {
       LWIP_DEBUGF(TCP_DEBUG, ("tcp_pcb_purge: data left on ->unacked\n"));
     }
+
+/* 释放指定 tcp 连接中所有 out of sequence 数据包 */
 #if TCP_QUEUE_OOSEQ
     if (pcb->ooseq != NULL) {
       LWIP_DEBUGF(TCP_DEBUG, ("tcp_pcb_purge: data left on ->ooseq\n"));
@@ -2485,11 +2686,17 @@ tcp_pcb_purge(struct tcp_pcb *pcb)
 
     /* Stop the retransmission timer as it will expect data on unacked
        queue if it fires */
+    /* 关闭当前 tcp 协议控制块的数据包重传定时器 */
     pcb->rtime = -1;
 
+    /* 清空当前 tcp 协议控制块未发送数据队列上的所有数据包 */
     tcp_segs_free(pcb->unsent);
+	
+    /* 清空当前 tcp 协议控制块发送但是还未应答队列上的所有数据包 */
     tcp_segs_free(pcb->unacked);
+	
     pcb->unacked = pcb->unsent = NULL;
+	
 #if TCP_OVERSIZE
     pcb->unsent_oversize = 0;
 #endif /* TCP_OVERSIZE */
@@ -2501,22 +2708,37 @@ tcp_pcb_purge(struct tcp_pcb *pcb)
  *
  * @param pcblist PCB list to purge.
  * @param pcb tcp_pcb to purge. The pcb itself is NOT deallocated!
- */
+ */ 
+/*********************************************************************************************************
+** 函数名称: tcp_pcb_remove
+** 功能描述: 把指定的 tcp 协议控制块从指定的 tcp 协议控制块链表上移除，并释放这个 tcp 协议控制块
+**         : 的所有缓存数据、把这个 tcp 协议控制块的延迟发送应答数据包立即发送出去，然后设置这个
+**         : tcp 协议控制块的状态和本地端口号分别为 CLOSED 和 0 
+** 输	 入: pcblist - 需要清理的 tcp 协议控制块所属链表
+**         : pcb - 需要清理的 tcp 协议控制块
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 tcp_pcb_remove(struct tcp_pcb **pcblist, struct tcp_pcb *pcb)
 {
   LWIP_ASSERT("tcp_pcb_remove: invalid pcb", pcb != NULL);
   LWIP_ASSERT("tcp_pcb_remove: invalid pcblist", pcblist != NULL);
 
+  /* 把指定的 tcp 协议控制块从指定的 tcp 协议控制块链表上移除 */
   TCP_RMV(pcblist, pcb);
 
+  /* 清空指定的、不是处于完全关闭状态的 tcp 协议控制块的所有缓存数据 */
   tcp_pcb_purge(pcb);
 
   /* if there is an outstanding delayed ACKs, send it */
   if ((pcb->state != TIME_WAIT) &&
       (pcb->state != LISTEN) &&
       (pcb->flags & TF_ACK_DELAY)) {
+	/* 设置当前 tcp 协议控制块的 TF_ACK_NOW 标志位 */
     tcp_ack_now(pcb);
+	/* 执行当前 tcp 协议控制块要向对端设备发送的应答数据包操作 */
     tcp_output(pcb);
   }
 
@@ -2540,13 +2762,24 @@ tcp_pcb_remove(struct tcp_pcb **pcblist, struct tcp_pcb *pcb)
  *
  * @return u32_t pseudo random sequence number
  */
+/*********************************************************************************************************
+** 函数名称: tcp_next_iss
+** 功能描述: 为新建立的、指定的 tcp 协议控制块分配一个 ISN（Initial Sequence Number）
+** 输	 入: pcb - 需要分配 ISN 的 tcp 协议控制块
+** 输	 出: iss - 分配到的 ISN
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 u32_t
 tcp_next_iss(struct tcp_pcb *pcb)
 {
+
+/* 优先使用用户实现的自定义接口函数，为新建立的 tcp 连接分配 ISN（Initial Sequence Number）*/
 #ifdef LWIP_HOOK_TCP_ISN
   LWIP_ASSERT("tcp_next_iss: invalid pcb", pcb != NULL);
   return LWIP_HOOK_TCP_ISN(&pcb->local_ip, pcb->local_port, &pcb->remote_ip, pcb->remote_port);
 #else /* LWIP_HOOK_TCP_ISN */
+
   static u32_t iss = 6510;
 
   LWIP_ASSERT("tcp_next_iss: invalid pcb", pcb != NULL);

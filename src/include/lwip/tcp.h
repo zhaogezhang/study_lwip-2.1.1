@@ -144,7 +144,9 @@ typedef err_t (*tcp_connected_fn)(void *arg, struct tcp_pcb *tpcb, err_t err);
 #define TCPWND16(x)             (x)
 #define TCP_WND_MAX(pcb)        TCP_WND
 #endif
+
 /* Increments a tcpwnd_size_t and holds at max value rather than rollover */
+/* 把指定的 tcp 窗口变量增加指定的步长，如果增加到最大值则保持为最大值，不会出现溢出翻转 */
 #define TCP_WND_INC(wnd, inc)   do { \
                                   if ((tcpwnd_size_t)(wnd + inc) >= wnd) { \
                                     wnd = (tcpwnd_size_t)(wnd + inc); \
@@ -236,7 +238,7 @@ struct tcp_pcb_listen {
   /* 表示当前协议栈的 tcp 模块支持的同时建立的连接请求数的最大值 */
   u8_t backlog;
 
-  /* 表示当前 tcp 模块已经建立的连接请求数 */
+  /* 表示当前 tcp 模块已经建立的连接请求数，在发送接受其他设备的连接请求时加一，在成功建立连接的时候减一 */
   u8_t accepts_pending;
 #endif /* TCP_LISTEN_BACKLOG */
 };
@@ -251,7 +253,8 @@ struct tcp_pcb {
   /** protocol specific PCB members */
   TCP_PCB_COMMON(struct tcp_pcb);
 
-  /* ports are in host byte order */
+  /* ports are in host byte order */  
+  /* 表示当前 tcp 协议控制块的对端设备端口号 */
   u16_t remote_port;
 
   /* 表示当前 tcp 协议控制块的标志变量，例如 TF_NODELAY */
@@ -263,10 +266,13 @@ struct tcp_pcb {
 /* 表示当前 tcp 协议控制块需要立即发送应答数据包 */
 #define TF_ACK_NOW     0x02U   /* Immediate ACK. */
 
-/* 表示当前 tcp 协议控制块正处于网络拥塞快速恢复状态 */
+/* 表示当前 tcp 协议控制块正处于数据包快速重传状态 */
 #define TF_INFR        0x04U   /* In fast recovery. */
 
+/* 表示当前 tcp 协议控制块发送的 FIN 数据包发送失败，需要在 tcp_tmr 定时器中通过检查这个标志重新发送 */
 #define TF_CLOSEPEND   0x08U   /* If this is set, tcp_close failed to enqueue the FIN (retried in tcp_tmr) */
+
+/* 表示当前 tcp 协议控制块的接收数据端连接已经被关闭，即不能再接收对端设备发送的数据包了 */
 #define TF_RXCLOSED    0x10U   /* rx closed by tcp_shutdown */
 
 /* 表示当前 tcp 协议控制块已经发送了 FIN 数据包，即发起了关闭 tcp 连接请求 */
@@ -297,7 +303,7 @@ struct tcp_pcb {
 #define TF_TIMESTAMP   0x0400U   /* Timestamp option enabled */
 #endif
 
-/* 表示当前 tcp 协议控制块的重传超时定时器已经启动 */
+/* 表示当前 tcp 协议控制块的发送超时重传定时器已经启动 */
 #define TF_RTO         0x0800U /* RTO timer has fired, in-flight data moved to unsent and being retransmitted */
 
 /* 表示当前 tcp 协议控制块启用了 sack 选项功能 */
@@ -311,12 +317,15 @@ struct tcp_pcb {
   /* Timers */
   u8_t polltmr, pollinterval;
   u8_t last_timer;
+
+  /* 表示当前 tcp 协议控制块处于 TIME_WAIT 状态时的超时周期为 2 个 MSL（Maximum Segment Lifetime）的 TIME_WAIT 定时器*/
   u32_t tmr;
 
   /* receiver variables */
   /* 表示当前 tcp 协议控制块下一次想要接收的 tcp 分片数据包的字序号 */
   u32_t rcv_nxt;   /* next seqno expected */
-  
+
+  /* 表示当前 tcp 协议控制块有效的接收数据窗口大小 */
   tcpwnd_size_t rcv_wnd;   /* receiver window available */
 
   /* 表示当前 tcp 协议控制块需要发送给其它对端设备的本地设备接收窗口大小 */
@@ -336,13 +345,17 @@ struct tcp_pcb {
 #endif /* LWIP_TCP_SACK_OUT */
 
   /* Retransmission timer. */
-  /* 表示当前 tcp 协议控制块的数据包重传定时器，-1 表示没启动，其他值表示已经消耗的时间周期数 */
+  /* 表示当前 tcp 协议控制块的超时重传定时器计数值，在我们发送完一个数据包之后，会启动超时重传
+   * 定时器，表示如果在指定的时间内没有收到应答数据包（不一定是我们刚刚发送的数据包的应答数据包
+   * 也可以是之前发送的数据包的应答数据包），则表示我们的数据包发送失败需要重新传输，-1 表示定
+   * 时器没启动，其他值表示从发送数据包后已经消耗的时间周期数 */
   s16_t rtime;
 
+  /* 通过 tcp mss 和网络接口的 mtu 计算得到的有效 mss，详细见 tcp_eff_send_mss_netif */
   u16_t mss;   /* maximum segment size */
 
   /* RTT (round trip time) estimation variables */
-  /* 用来计算当前 tcp 协议控制块收发数据包的往返时间估计变量 */
+  /* 表示在计算当前 tcp 协议控制块的数据包收发时间（RTT）时，发送数据包时刻的系统时间 */
   u32_t rttest; /* RTT estimate in 500ms ticks */
 
   /* 表示当前 tcp 协议控制块正在计时的 tcp 分片数据包的字序号 */
@@ -350,12 +363,18 @@ struct tcp_pcb {
   
   s16_t sa, sv; /* @see "Congestion Avoidance and Control" by Van Jacobson and Karels */
 
+  /* 表示当前 tcp 协议控制块的数据包超时重传定时器的超时时间，单位是 TCP_SLOW_INTERVAL */
   s16_t rto;    /* retransmission time-out (in ticks of TCP_SLOW_INTERVAL) */
 
   /* 表示当前 tcp 协议控制块“连续”启动重传数据包的次数 */
   u8_t nrtx;    /* number of retransmissions */
 
   /* fast retransmit/recovery */
+  /* 表示当前 tcp 协议控制块连续接收到的重复应答数据包次数，有关这个计数值的处理，分别有如下几条：
+   * a) dupacks < 3: do nothing
+   * b) dupacks == 3: fast retransmit
+   * c) dupacks > 3: increase cwnd 
+   */
   u8_t dupacks;
 
   /* 表示当前 tcp 协议控制块已经应答的最大字序号的值 */
@@ -367,9 +386,10 @@ struct tcp_pcb {
    * 端-端之间流量是合适的，但是对于网络整体来说，随着网络的流量增加，也会使网
    * 络通信负荷过重由此引起报文传输延迟增大或丢弃。报文的差错确认和重传又会进
    * 一步加剧网络的拥塞，所以引入了拥塞窗口大小这个参数 */
+  /* 表示当前 tcp 协议控制块的拥塞窗口大小，在发送数据包的时候选择发送窗口和拥塞窗口二者中的小值作为有效发送窗口 */
   tcpwnd_size_t cwnd;
 
-  /* 慢启动描述：
+  /* 慢启动描述（因为新设备不清楚当前网络拥塞状态，需要一个探测过程，即慢启动）：
    * 1. 在刚刚开始发送报文段时，先把拥塞窗口 cwnd 设置为一个最大报文段 MSS 的数
    *    值。而在每收到一个对新的报文段的确认后，把拥塞窗口以 2 的指数增长。用这
    *    样的方法逐步增大发送方的拥塞窗口 cwnd，可以使分组注入到网络的速率更加合理
@@ -385,7 +405,7 @@ struct tcp_pcb {
    * 2. 当 cwnd > ssthresh 时，停止使用慢启动算法而改用拥塞避免算法
    * 3. 当 cwnd = ssthresh 时，既可使用慢启动算法，也可使用拥塞控制避免算法 */
   
-  /* 塞避免算法：
+  /* 拥塞避免算法：
    * 1. 让拥塞窗口 cwnd 缓慢地增大，即每经过一个轮次就把发送方的拥塞窗口 cwnd 
    *	加 1，而不是加倍。这样拥塞窗口 cwnd 按线性规律缓慢增长，比慢启动算法的
    *	指数拥塞窗口增长速率缓慢得多
@@ -403,26 +423,27 @@ struct tcp_pcb {
   tcpwnd_size_t ssthresh;
 
   /* first byte following last rto byte */
-  /* 表示重传分片数据包链表表示的字序号范围的下一个字序号的值 */
+  /* 表示重传分片数据包链表表示的字序号范围的下一个字序号的值，详情见 tcp_rexmit_rto_prepare */
   u32_t rto_end;
 
   /* sender variables */
   /* 表示当前 tcp 协议控制块下一次发送的 tcp 分片数据包的字序号 */
   u32_t snd_nxt;   /* next new seqno to be sent */
-  
+
+  /* 表示当前 tcp 协议控制块上一次更新发送窗口大小时接收到的数据包的字序号和应答字序号 */
   u32_t snd_wl1, snd_wl2; /* Sequence and acknowledgement numbers of last
                              window update. */
 
   /* 追踪记录当前 tcp 协议控制块下一次构建发送分片数据包时使用的字节号 */							 
   u32_t snd_lbb;       /* Sequence number of next byte to be buffered. */
 
-  /* 表示当前 tcp 协议控制块的发送窗口大小 */				 
+  /* 表示当前 tcp 协议控制块的发送窗口大小，在发送数据包的时候选择发送窗口和拥塞窗口二者中的小值作为有效发送窗口 */				 
   tcpwnd_size_t snd_wnd;   /* sender window */
 
   /* 表示由对端设备宣称的最大发送窗口，在我们发送数据的时候使用 */
   tcpwnd_size_t snd_wnd_max; /* the maximum sender window announced by the remote host */
 
-  /* 表示当前 tcp 协议控制块的发送数据缓冲区大小，随着收发数据动态变化 */
+  /* 表示当前 tcp 协议控制块的发送数据缓冲区大小，单位是八位字节，随着收发数据动态变化 */
   tcpwnd_size_t snd_buf;   /* Available buffer space for sending (in bytes). */
   
 #define TCP_SNDQUEUELEN_OVERFLOW (0xffffU-3)
@@ -436,19 +457,26 @@ struct tcp_pcb {
   u16_t unsent_oversize;
 #endif /* TCP_OVERSIZE */
 
+  /* 表示当前 tcp 协议控制块在拥塞窗口范围内，已经应答的数据包字节数？？？ */
   tcpwnd_size_t bytes_acked;
 
   /* These are ordered by sequence number: */
   /* 通过单向链表把所有未发送的数据包按照队列的方式组织起来，在队列中的数据包，是按照字节号升序方式排列的 */
   struct tcp_seg *unsent;   /* Unsent (queued) segments. */
   
-  /* 通过单向链表把所有已经发送但是还未应答的数据包按照队列的方式组织起来，在队列中的数据包，是按照字节号升序方式排列的 */
+  /* 通过单向链表把所有已经发送但是还未应答的数据包按照队列的方式组织起来，在队列中的数据包是按照字节号升序方式排列的
+   * 我们在发送完 tcp 分片数据包之后，会把的发送的分片数据包结构添加到对应的 tcp 协议控制块中，然后为这些数据包启动一
+   * 个重传定时器，表示如果在指定的时间内，这些数据包还没有接收到应答信息，表示发送失败，则需要启动重传逻辑，所以为了
+   * 实现发送失败重传功能，我们在发送完数据包之后不能直接释放对应 tcp 分片数据包的内存空间，需要在接收到应答信息的时候
+   * 才能释放这个 tcp 分片数据包占用的内存空间 */
   struct tcp_seg *unacked;  /* Sent but unacknowledged segments. */
-  
+
+/* 表示当前 tcp 协议控制块接收到的乱序 tcp 分片数据包队列 */
 #if TCP_QUEUE_OOSEQ
   struct tcp_seg *ooseq;    /* Received out of sequence segments. */
 #endif /* TCP_QUEUE_OOSEQ */
 
+  /* 表示当前 tcp 协议控制块之前已经接收到的、但是还没被上层（应用层）协议处理的数据包 */
   struct pbuf *refused_data; /* Data previously received but not yet taken by upper layer */
 
 #if LWIP_CALLBACK_API || TCP_LISTEN_BACKLOG
@@ -505,6 +533,7 @@ struct tcp_pcb {
   u8_t persist_probe;
 
   /* KEEPALIVE counter */
+  /* 表示当前 tcp 协议可控制块发送的“保活探测”数据包次数 */
   u8_t keep_cnt_sent;
 
 #if LWIP_WND_SCALE

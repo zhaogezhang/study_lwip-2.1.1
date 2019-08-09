@@ -1301,7 +1301,7 @@ memerr:
  */
 /*********************************************************************************************************
 ** 函数名称: tcp_send_fin
-** 功能描述: 为指定的 tcp 协议控制块发送一个 FIN 数据包
+** 功能描述: 向指定的 tcp 协议控制块的未发送数据队列中添加一个 FIN 数据包
 ** 输	 入: pcb - 需要发送 FIN 数据包的 tcp 协议控制块
 ** 输	 出: err_t - 操作状态
 ** 全局变量: 
@@ -1345,6 +1345,7 @@ tcp_send_fin(struct tcp_pcb *pcb)
 /*********************************************************************************************************
 ** 函数名称: tcp_enqueue_flags
 ** 功能描述: 为指定的 tcp 协议控制块发送一个指定控制位信息的数据包，一般用来发送 SYN 或者 FIN 数据包
+**         : 此函数只是把要发送的 tcp 分片数据包添加到指定的 tcp 协议控制块的未发送数据队列中
 ** 输	 入: pcb - 需要发送数据包的 tcp 协议控制块
 **         : flags - 需要发送的数据包的控制位信息
 ** 输	 出: err_t - 操作状态
@@ -1695,7 +1696,8 @@ tcp_output(struct tcp_pcb *pcb)
      * an empty ACK segment and send it. */
     /* 如果当前 tcp 协议控制块的未发送队列为空，并且当前 tcp 协议控制块设置了 TF_ACK_NOW 标志
 	 * 则向当前 tcp 协议控制块的对端设备发送一个没有负载数据的应答数据包 */
-    if (pcb->flags & TF_ACK_NOW) {
+    if (pcb->flags & TF_ACK_NOW) {		
+	  /* 向指定的 tcp 协议控制块的对端设备发送一个没有负载数据的应答数据包，这个数据包包含一些选项数据（直接发送数据包到 IP 层）*/
       return tcp_send_empty_ack(pcb);
     }
 	
@@ -2285,7 +2287,7 @@ tcp_rexmit_rto_commit(struct tcp_pcb *pcb)
  * @param pcb the tcp_pcb for which to re-enqueue all unacked segments
  */
 /*********************************************************************************************************
-** 函数名称: tcp_rexmit_rto
+** 函数名称: tcp_rexmit_rto   rto - request transmission overall
 ** 功能描述: 尝试把指定 tcp 协议控制块的发送但未应答数据包链表上的每一个分片数据包移动到 tcp 协议控制块
 **         : 的未发送数据队列中，然后尝试把这些数据包发送出去，实现数据包重传功能
 ** 输	 入: pcb - 要重传数据包的 tcp 协议控制块
@@ -2387,11 +2389,14 @@ tcp_rexmit(struct tcp_pcb *pcb)
  */
 /*********************************************************************************************************
 ** 函数名称: tcp_rexmit_fast
-** 功能描述: 尝试把指定 tcp 协议控制块的发送但未应答数据包链表上的“第一个”分片数据包按照字序号升序方式
-**         : 插入到 tcp 协议控制块的未发送数据队列链表的合适位置处，并使当前 tcp 协议控制块进入网络拥塞
-**         : 快速恢复状态，同时更新当前 tcp 协议控制块的拥塞窗口和慢启动阈值两个变量值，并复位当前 tcp
-**         : 协议控制块的数据包重传定时器
-** 输	 入: pcb - 要重传数据包的 tcp 协议控制块
+** 功能描述: 快速重传及快速恢复功能实现函数，具体执行操作逻辑如下：
+**         : 1. 尝试把指定 tcp 协议控制块的发送但未应答数据包链表上的“第一个”分片数据包按照字序号升序方式
+**         :    插入到 tcp 协议控制块的未发送数据队列链表的合适位置处
+**         : 2. 设置当前 tcp 协议控制块的 pcb->ssthresh = LWIP_MIN(pcb->cwnd, pcb->snd_wnd) / 2
+**         : 3. 设置当前 tcp 协议控制块的 pcb->cwnd = pcb->ssthresh + 3 * pcb->mss
+**         : 4. 设置当前 tcp 协议控制块进入网络拥塞快速恢复状态
+**         : 5. 复位当前 tcp 协议控制块的数据包重传定时器
+** 输	 入: pcb - 要执行快速重传的 tcp 协议控制块
 ** 输	 出: 
 ** 全局变量: 
 ** 调用模块: 
@@ -2414,6 +2419,11 @@ tcp_rexmit_fast(struct tcp_pcb *pcb)
     if (tcp_rexmit(pcb) == ERR_OK) {
       /* Set ssthresh to half of the minimum of the current
        * cwnd and the advertised window */
+
+	  /* 下面的代码属于快速恢复算法实现，快速恢复算法是认为，如果还能连续收到 3 个重复的应答数据包
+	   * 说明网络也不那么糟糕，所以没有必要像 RTO 超时那么强烈，并不需要重新回到慢启动进行，这样可
+	   * 能降低效率，所以协议栈会通过如下方式调整拥塞窗口和慢启动阈值 */
+	  
       /* 既然已经开始执行分片数据包重传逻辑，就表示当前没有收到已经发送的分片数据包的应答信息
 	   * 所以就表示当前网络出现了拥塞，*/
       pcb->ssthresh = LWIP_MIN(pcb->cwnd, pcb->snd_wnd) / 2;
@@ -2428,13 +2438,14 @@ tcp_rexmit_fast(struct tcp_pcb *pcb)
         pcb->ssthresh = 2 * pcb->mss;
       }
 
-      /* 设置当前 tcp 协议控制块的拥塞窗口大小 */
+      /* 在启动快速重传的时候，默认设置 pcb->cwnd = pcb->ssthresh + 3 * pcb->mss */
       pcb->cwnd = pcb->ssthresh + 3 * pcb->mss;
 
-	  /* 设置当前 tcp 协议控制块的网络拥塞快速恢复状态标志 */
+	  /* 设置当前 tcp 协议控制块的数据包快速重传状态标志 */
       tcp_set_flags(pcb, TF_INFR);
 
       /* Reset the retransmission timer to prevent immediate rto retransmissions */
+	  /* 复位当前 tcp 协议控制块的重传数据包超时定时器，避免发生重传数据包超时事件 */
       pcb->rtime = 0;
     }
   }
@@ -2738,7 +2749,8 @@ tcp_rst(const struct tcp_pcb *pcb, u32_t seqno, u32_t ackno,
  */
 /*********************************************************************************************************
 ** 函数名称: tcp_send_empty_ack
-** 功能描述: 向指定的 tcp 协议控制块的对端设备发送一个没有负载数据的应答数据包
+** 功能描述: 向指定的 tcp 协议控制块的对端设备发送一个没有负载数据的应答数据包，这个数据包包含一些
+**         : 选项数据（直接发送数据包到 IP 层）
 ** 输	 入: pcb - 需要发送应答数据包的 tcp 协议控制块
 ** 输	 出: err - 发送状态
 ** 全局变量: 
@@ -2909,6 +2921,9 @@ tcp_zero_window_probe(struct tcp_pcb *pcb)
   /* we want to send one seqno: either FIN or data (no options) */
   len = is_fin ? 0 : 1;
 
+  /* 如果待发送的 tcp 分片数据包“是" FIN 数据包，则申请一个没有负载数据的 pbuf 用于执行
+   * 窗口探测，如果待发送的 tcp 分片数据包"不是” FIN 数据包，则申请一个负载空间为单字节
+   * 的 pbuf 用于执行窗口探测，这个单字节空间用来发送未应答队列的首个 tcp 字节数据 */
   p = tcp_output_alloc_header(pcb, optlen, len, seg->tcphdr->seqno);
   if (p == NULL) {
     LWIP_DEBUGF(TCP_DEBUG, ("tcp_zero_window_probe: no memory for pbuf\n"));
@@ -2933,6 +2948,7 @@ tcp_zero_window_probe(struct tcp_pcb *pcb)
   if (TCP_SEQ_LT(pcb->snd_nxt, snd_nxt)) {
     pcb->snd_nxt = snd_nxt;
   }
+  
   tcp_output_fill_options(pcb, p, 0, optlen);
 
   err = tcp_output_control_segment(pcb, p, &pcb->local_ip, &pcb->remote_ip);

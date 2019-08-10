@@ -1513,7 +1513,8 @@ pbuf_get_contiguous(const struct pbuf *p, void *buffer, size_t bufsize, u16_t le
 ** 功能描述: 从指定的 pbuf chain 链表头开始，以 64K 为边界分割 pbuf chain 链表，使分割后的头部 pbuf chain
 **         : 链表负载总空间长度不超过 64K，并返回剩余的、超过 64K 的那部分 pbuf chain
 ** 输	 入: buf - 需要分割的 pbuf chain 指针
-** 输	 出: rest - 如果 pbuf chain 的总负载空间大于 64K，则返回分割后剩余部分 pbuf chain 指针
+** 输	 出: p - 分割后，保留前面 64K 的 pbuf chain 指针
+**         : rest - 如果 pbuf chain 的总负载空间大于 64K，则返回分割后剩余部分 pbuf chain 指针
 **         : NULL - 表示 pbuf chain 的总负载空间不大于 64K，所以分割后没有剩余 pbuf chain
 ** 全局变量: 
 ** 调用模块: 

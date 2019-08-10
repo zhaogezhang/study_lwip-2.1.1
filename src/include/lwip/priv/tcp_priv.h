@@ -202,6 +202,7 @@ err_t            tcp_process_refused_data(struct tcp_pcb *pcb);
     else (ret) = ERR_ARG;                                      \
   } while (0)
 
+/* 通过用户注册在指定的 tcp 协议控制块中的回调函数发送指定 tcp 协议控制块中待发送的数据包 */
 #define TCP_EVENT_SENT(pcb,space,ret)                          \
   do {                                                         \
     if((pcb)->sent != NULL)                                    \

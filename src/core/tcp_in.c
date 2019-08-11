@@ -1275,7 +1275,7 @@ tcp_process(struct tcp_pcb *pcb)
             LWIP_ASSERT("pcb->listener->accept != NULL", pcb->listener->accept != NULL);
 #endif
  
-            /* 减小指定的 tcp 协议控制块所属监听者的 backlog 计数值 */
+            /* 尝试减小指定的 tcp 协议控制块所属监听者的 backlog 计数值 */
             tcp_backlog_accepted(pcb);
 
             /* Call the accept function. */

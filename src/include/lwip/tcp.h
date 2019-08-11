@@ -318,7 +318,7 @@ struct tcp_pcb {
   u8_t polltmr, pollinterval;
   u8_t last_timer;
 
-  /* 表示当前 tcp 协议控制块处于 TIME_WAIT 状态时的超时周期为 2 个 MSL（Maximum Segment Lifetime）的 TIME_WAIT 定时器*/
+  /* 表示当前 tcp 协议控制块处于某种状态下的起始时间点，用来计算在这种状态持续的时间 */
   u32_t tmr;
 
   /* receiver variables */
@@ -608,6 +608,7 @@ void             tcp_poll    (struct tcp_pcb *pcb, tcp_poll_fn poll, u8_t interv
 /** @ingroup tcp_raw */
 #define          tcp_nagle_disabled(pcb)  tcp_is_flag_set(pcb, TF_NODELAY)
 
+/* 操作处于 listen 状态的 tcp 协议控制块的 backlog 接口 */
 #if TCP_LISTEN_BACKLOG
 #define          tcp_backlog_set(pcb, new_backlog) do { \
   LWIP_ASSERT("pcb->state == LISTEN (called for wrong pcb?)", (pcb)->state == LISTEN); \
@@ -619,6 +620,8 @@ void             tcp_backlog_accepted(struct tcp_pcb* pcb);
 #define          tcp_backlog_delayed(pcb)
 #define          tcp_backlog_accepted(pcb)
 #endif /* TCP_LISTEN_BACKLOG */
+
+
 #define          tcp_accepted(pcb) do { LWIP_UNUSED_ARG(pcb); } while(0) /* compatibility define, not needed any more */
 
 void             tcp_recved  (struct tcp_pcb *pcb, u16_t len);

@@ -1278,6 +1278,7 @@
  * TCP_MAXRTX: Maximum number of retransmissions of data segments.
  */
 #if !defined TCP_MAXRTX || defined __DOXYGEN__
+/* 表示当前协议栈在发送数据包失败时允许的最多重传次数，如果超过这个值，则关闭 tcp 连接 */
 #define TCP_MAXRTX                      12
 #endif
 
@@ -1493,6 +1494,7 @@
  * TCP_WND_UPDATE_THRESHOLD: difference in window to trigger an
  * explicit window update
  */
+/* 表示如果本地设备接收数据窗口调整值超过这个宏定义设定的值，则立即发送一个窗口更新数据包，否则延迟发送 */
 #if !defined TCP_WND_UPDATE_THRESHOLD || defined __DOXYGEN__
 #define TCP_WND_UPDATE_THRESHOLD        LWIP_MIN((TCP_WND / 4), (TCP_MSS * 4))
 #endif

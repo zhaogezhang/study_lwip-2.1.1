@@ -131,6 +131,7 @@ struct ip_pcb {
  * 匹配的协议控制块中*/
 #define SOF_REUSEADDR     0x04U  /* allow local address reuse */
 
+/* 如果设置这个 socket 选项，表示当前 tcp 协议控制块开启了长连接功能 */
 #define SOF_KEEPALIVE     0x08U  /* keep connections alive */
 
 /* 如果设置这个 socket 选项，表示允许发送和接收广播数据包 */

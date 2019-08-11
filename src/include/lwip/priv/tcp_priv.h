@@ -382,8 +382,12 @@ extern struct tcp_pcb *tcp_active_pcbs;  /* List of all TCP PCBs that are in a
               data. */
 extern struct tcp_pcb *tcp_tw_pcbs;      /* List of all TCP PCBs in TIME-WAIT. */
 
+/* 表示当前协议栈的 tcp_pcb_lists 数组中去除末尾位置的 tcp_tw_pcbs 链表成员后、包含的链表成员个数 */
 #define NUM_TCP_PCB_LISTS_NO_TIME_WAIT  3
+
+/* 表示当前协议栈的 tcp_pcb_lists 数组中包含的链表成员个数 */
 #define NUM_TCP_PCB_LISTS               4
+
 extern struct tcp_pcb ** const tcp_pcb_lists[NUM_TCP_PCB_LISTS];
 
 /* Axioms about the above lists:

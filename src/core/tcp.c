@@ -405,6 +405,7 @@ u8_t tcp_active_pcbs_changed;
 static u8_t tcp_timer;
 
 static u8_t tcp_timer_ctr;
+
 static u16_t tcp_new_port(void);
 
 static err_t tcp_close_shutdown_fin(struct tcp_pcb *pcb);
@@ -2188,6 +2189,19 @@ tcp_slowtmr_start:
  *
  * Automatically called from tcp_tmr().
  */
+/*********************************************************************************************************
+** 函数名称: tcp_fasttmr
+** 功能描述: tcp 协议模块的快速定时器超时函数，默认调用周期为 250ms，主要操作如下：
+**         : 分别遍历当前协议栈的 tcp_active_pcbs 协议控制块链表中的每一个成员并分别处理：
+**         : 1. 判断当前 tcp 协议控制块是否存在待发送的“延迟应答”数据包，如果有则立即发送出去
+**         : 2. 判断当前 tcp 协议控制块是否存在待发送的“FIN”数据包，如果有则立即发送出去
+**         : 3. 判断当前 tcp 协议控制块是否存在应用层 "refused" 数据包，如果有则处理并尝试把数据
+**         :    分发到应用层协议中
+** 输	 入: 
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 tcp_fasttmr(void)
 {
@@ -2198,18 +2212,23 @@ tcp_fasttmr(void)
 tcp_fasttmr_start:
   pcb = tcp_active_pcbs;
 
+  /* 分别遍历当前协议栈的 tcp_active_pcbs 协议控制块链表中的每一个成员并分别处理 */
   while (pcb != NULL) {
     if (pcb->last_timer != tcp_timer_ctr) {
       struct tcp_pcb *next;
       pcb->last_timer = tcp_timer_ctr;
+	
       /* send delayed ACKs */
+	  /* 判断当前 tcp 协议控制块是否存在待发送的“延迟应答”数据包，如果有则立即发送出去 */
       if (pcb->flags & TF_ACK_DELAY) {
         LWIP_DEBUGF(TCP_DEBUG, ("tcp_fasttmr: delayed ACK\n"));
         tcp_ack_now(pcb);
         tcp_output(pcb);
         tcp_clear_flags(pcb, TF_ACK_DELAY | TF_ACK_NOW);
       }
+	  
       /* send pending FIN */
+	  /* 判断当前 tcp 协议控制块是否存在待发送的“FIN”数据包，如果有则立即发送出去 */
       if (pcb->flags & TF_CLOSEPEND) {
         LWIP_DEBUGF(TCP_DEBUG, ("tcp_fasttmr: pending FIN\n"));
         tcp_clear_flags(pcb, TF_CLOSEPEND);
@@ -2219,6 +2238,7 @@ tcp_fasttmr_start:
       next = pcb->next;
 
       /* If there is data which was previously "refused" by upper layer */
+	  /* 判断当前 tcp 协议控制块是否存在应用层 "refused" 数据包，如果有则处理并尝试把数据分发到应用层协议中 */
       if (pcb->refused_data != NULL) {
         tcp_active_pcbs_changed = 0;
         tcp_process_refused_data(pcb);
@@ -2235,6 +2255,15 @@ tcp_fasttmr_start:
 }
 
 /** Call tcp_output for all active pcbs that have TF_NAGLEMEMERR set */
+/*********************************************************************************************************
+** 函数名称: tcp_txnow
+** 功能描述: 遍历当前协议栈 tcp_active_pcbs 链表中的每一个协议控制块并把具有 TF_NAGLEMEMERR 标志的协议
+**         : 控制块上的所有数据发送出去
+** 输	 入: 
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 tcp_txnow(void)
 {
@@ -2398,6 +2427,15 @@ tcp_seg_free(struct tcp_seg *seg)
  * @param pcb the tcp_pcb to manipulate
  * @param prio new priority
  */
+/*********************************************************************************************************
+** 函数名称: tcp_setprio
+** 功能描述: 设置指定 tcp 协议控制块的优先级
+** 输	 入: pcb - 需要设置优先级的 tcp 协议控制块
+**         : prio - tcp 协议控制块新的优先级
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 tcp_setprio(struct tcp_pcb *pcb, u8_t prio)
 {
@@ -2480,6 +2518,15 @@ tcp_recv_null(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
  *
  * @param prio minimum priority
  */
+/*********************************************************************************************************
+** 函数名称: tcp_setprio
+** 功能描述: 遍历当前协议栈 tcp_active_pcbs 链表，在指定优先级范围内找出优先级最低或者的 inactivity 
+**         : 时间最长的 tcp 协议控制块并终止这个 tcp 协议控制块表示的链接
+** 输	 入: prio - 需要满足的优先级范围的上限值
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void
 tcp_kill_prio(u8_t prio)
 {
@@ -2505,6 +2552,9 @@ tcp_kill_prio(u8_t prio)
 
   inactivity = 0;
   inactive = NULL;
+
+  /* 分别遍历当前协议栈的 tcp_active_pcbs 链表上的每一个成员，找出优先级最小或者
+   * inactivity 时间最长的 tcp 协议控制块 */
   for (pcb = tcp_active_pcbs; pcb != NULL; pcb = pcb->next) {
         /* lower prio is always a kill candidate */
     if ((pcb->prio < mprio) ||
@@ -2526,6 +2576,15 @@ tcp_kill_prio(u8_t prio)
  * Kills the oldest connection that is in specific state.
  * Called from tcp_alloc() for LAST_ACK and CLOSING if no more connections are available.
  */
+/*********************************************************************************************************
+** 函数名称: tcp_kill_state
+** 功能描述: 遍历当前协议栈 tcp_active_pcbs 链表，找到指定状态下的 inactivity 时间最长的 tcp 协议控制块
+**         : 并终止这个 tcp 协议控制块表示的链接
+** 输	 入: state - 需要查找的状态
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void
 tcp_kill_state(enum tcp_state state)
 {
@@ -2558,6 +2617,15 @@ tcp_kill_state(enum tcp_state state)
  * Kills the oldest connection that is in TIME_WAIT state.
  * Called from tcp_alloc() if no more connections are available.
  */
+/*********************************************************************************************************
+** 函数名称: tcp_kill_timewait
+** 功能描述: 遍历当前协议栈 tcp_tw_pcbs 链表，找到 inactivity 时间最长的 tcp 协议控制块并终止这个
+**         : tcp 协议控制块表示的链接
+** 输	 入: 
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void
 tcp_kill_timewait(void)
 {
@@ -2585,6 +2653,15 @@ tcp_kill_timewait(void)
  * now send the FIN (which failed before), the pcb might be in a state that is
  * OK for us to now free it.
  */
+/*********************************************************************************************************
+** 函数名称: tcp_handle_closepend
+** 功能描述: 遍历当前协议栈 tcp_active_pcbs 链表，在每个处于 TF_CLOSEPEND 状态的 tcp 链接上发送一个
+**         : FIN 数据包并清除这个 tcp 协议控制块的 TF_CLOSEPEND 标志
+** 输	 入: 
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void
 tcp_handle_closepend(void)
 {
@@ -2730,6 +2807,15 @@ tcp_alloc(u8_t prio)
  *
  * @return a new tcp_pcb that initially is in state CLOSED
  */
+/*********************************************************************************************************
+** 函数名称: tcp_new
+** 功能描述: 从当前系统的 MEMP_TCP_PCB 内存池中申请一个 TCP_PRIO_NORMAL 优先级的 tcp 协议控制块结构
+** 输	 入: 
+** 输	 出: pcb - 成功申请的 tcp 协议控制块结构
+**         : NULL - 申请失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 struct tcp_pcb *
 tcp_new(void)
 {
@@ -2747,6 +2833,16 @@ tcp_new(void)
  * supply @ref IPADDR_TYPE_ANY as argument and bind to @ref IP_ANY_TYPE.
  * @return a new tcp_pcb that initially is in state CLOSED
  */
+/*********************************************************************************************************
+** 函数名称: tcp_new_ip_type
+** 功能描述: 从当前系统的 MEMP_TCP_PCB 内存池中申请一个 TCP_PRIO_NORMAL 优先级的 tcp 协议控制块结构
+**         : 并设置这个 tcp 协议控制块使用的 IP 地址类型
+** 输	 入: type - 申请到 tcp 协议控制块使用的 IP 地址类型
+** 输	 出: pcb - 成功申请的 tcp 协议控制块结构
+**         : NULL - 申请失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 struct tcp_pcb *
 tcp_new_ip_type(u8_t type)
 {
@@ -2773,6 +2869,15 @@ tcp_new_ip_type(u8_t type)
  * @param pcb tcp_pcb to set the callback argument
  * @param arg void pointer argument to pass to callback functions
  */
+/*********************************************************************************************************
+** 函数名称: tcp_arg
+** 功能描述: 设置指定的 tcp 协议控制块的回调函数参数
+** 输	 入: pcb - 需要设置回调函数参数的 tcp 协议控制块
+**         : arg - 需要设置的回调函数参数
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 tcp_arg(struct tcp_pcb *pcb, void *arg)
 {
@@ -2796,6 +2901,15 @@ tcp_arg(struct tcp_pcb *pcb, void *arg)
  * @param pcb tcp_pcb to set the recv callback
  * @param recv callback function to call for this pcb when data is received
  */
+/*********************************************************************************************************
+** 函数名称: tcp_recv
+** 功能描述: 设置指定的 tcp 协议控制块的接收数据包的函数指针
+** 输	 入: pcb - 需要设置接收数据包函数指针的 tcp 协议控制块
+**         : recv - 用来接收数据包的函数指针
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 tcp_recv(struct tcp_pcb *pcb, tcp_recv_fn recv)
 {
@@ -2816,6 +2930,15 @@ tcp_recv(struct tcp_pcb *pcb, tcp_recv_fn recv)
  * @param pcb tcp_pcb to set the sent callback
  * @param sent callback function to call for this pcb when data is successfully sent
  */
+/*********************************************************************************************************
+** 函数名称: tcp_sent
+** 功能描述: 设置指定的 tcp 协议控制块的发送数据包的函数指针
+** 输	 入: pcb - 需要设置发送数据包函数指针的 tcp 协议控制块
+**         : sent - 用来发送数据包的函数指针
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 tcp_sent(struct tcp_pcb *pcb, tcp_sent_fn sent)
 {
@@ -2842,6 +2965,15 @@ tcp_sent(struct tcp_pcb *pcb, tcp_sent_fn sent)
  * @param err callback function to call for this pcb when a fatal error
  *        has occurred on the connection
  */
+/*********************************************************************************************************
+** 函数名称: tcp_err
+** 功能描述: 设置指定的 tcp 协议控制块的错误处理的函数指针
+** 输	 入: pcb - 需要设置错误处理函数指针的 tcp 协议控制块
+**         : err - 用来处理错误的函数指针
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 tcp_err(struct tcp_pcb *pcb, tcp_err_fn err)
 {
@@ -2861,6 +2993,15 @@ tcp_err(struct tcp_pcb *pcb, tcp_err_fn err)
  * @param accept callback function to call for this pcb when LISTENing
  *        connection has been connected to another host
  */
+/*********************************************************************************************************
+** 函数名称: tcp_accept
+** 功能描述: 设置指定的 tcp 协议控制块的处理链接请求的函数指针
+** 输	 入: pcb - 需要设置接收接收链接请求函数指针的 tcp 协议控制块
+**         : accept - 用来处理链接请求的函数指针
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 tcp_accept(struct tcp_pcb *pcb, tcp_accept_fn accept)
 {
@@ -2890,6 +3031,16 @@ tcp_accept(struct tcp_pcb *pcb, tcp_accept_fn accept)
  * the application may use the polling functionality to call tcp_write()
  * again when the connection has been idle for a while.
  */
+/*********************************************************************************************************
+** 函数名称: tcp_poll
+** 功能描述: 设置指定的 tcp 协议控制块轮训应用数据的函数指针和轮训的时间间隔
+** 输	 入: pcb - 需要设置轮训应用数据的函数指针的 tcp 协议控制块
+**         : poll - 用来处轮训应用数据的函数指针
+**         : interval - 轮训应用数据的时间间隔
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 tcp_poll(struct tcp_pcb *pcb, tcp_poll_fn poll, u8_t interval)
 {
@@ -3157,6 +3308,16 @@ tcp_eff_send_mss_netif(u16_t sendmss, struct netif *outif, const ip_addr_t *dest
 #endif /* TCP_CALCULATE_EFF_SEND_MSS */
 
 /** Helper function for tcp_netif_ip_addr_changed() that iterates a pcb list */
+/*********************************************************************************************************
+** 函数名称: tcp_netif_ip_addr_changed_pcblist
+** 功能描述: 遍历当前协议栈中指定的 tcp 协议控制块链表，找出和指定的 ip 地址相等的每一个 tcp 协议控制块
+**         : 并终止这个 tcp 协议控制块代表的 tcp 链接
+** 输	 入: old_addr - 需要被废弃的 IP 地址
+**         : pcb_list - 需要遍历的 tcp 协议控制块链表
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void
 tcp_netif_ip_addr_changed_pcblist(const ip_addr_t *old_addr, struct tcp_pcb *pcb_list)
 {
@@ -3189,6 +3350,18 @@ tcp_netif_ip_addr_changed_pcblist(const ip_addr_t *old_addr, struct tcp_pcb *pcb
  * @param old_addr IP address of the netif before change
  * @param new_addr IP address of the netif after change or NULL if netif has been removed
  */
+/*********************************************************************************************************
+** 函数名称: tcp_netif_ip_addr_changed_pcblist
+** 功能描述: 在我们改变指定网络接口的 IP 地址的时候调用这个函数，执行操作如下：
+**         : 1. 遍历当前协议栈的 tcp_active_pcbs 链表，找出并终止等于旧的 IP 地址的 tcp 链接
+**         : 2. 遍历当前协议栈的 tcp_bound_pcbs 链表，找出并终止等于旧的 IP 地址的 tcp 链接
+**         : 3. 遍历当前协议栈的 tcp_listen_pcbs 链表，找出并替换旧的 IP 地址到新的 IP 地址
+** 输	 入: old_addr - 需要被废弃的 IP 地址
+**         : new_addr - 需要使用的新的 IP 地址
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 tcp_netif_ip_addr_changed(const ip_addr_t *old_addr, const ip_addr_t *new_addr)
 {
@@ -3217,7 +3390,18 @@ tcp_debug_state_str(enum tcp_state s)
 {
   return tcp_state_str[s];
 }
-
+/*********************************************************************************************************
+** 函数名称: tcp_tcp_get_tcp_addrinfo
+** 功能描述: 获取指定 tcp 协议控制块指定方向的 IP 地址和 tcp 连接端口号信息
+** 输	 入: pcb - 需要获取信息的 tcp 协议控制块
+**         : local - 需要获取的地址信息的方向
+** 输	 出: addr - 获取到的 IP 地址信息
+**         : port - 获取到的 tcp 连接端口号
+**         : ERR_OK - 获取成功
+**         : ERR_VAL - 获取失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 err_t
 tcp_tcp_get_tcp_addrinfo(struct tcp_pcb *pcb, int local, ip_addr_t *addr, u16_t *port)
 {
@@ -3418,7 +3602,7 @@ tcp_pcbs_sane(void)
  * After allocating this index, use @ref tcp_ext_arg_set and @ref tcp_ext_arg_get
  * to store and load arguments from this index for a given pcb.
  */
-
+/* 用来表示当前协议栈可以用来存储 ext arg 数据的数组索引值 */
 static u8_t tcp_ext_arg_id;
 
 /**
@@ -3439,6 +3623,14 @@ static u8_t tcp_ext_arg_id;
  *
  * @return a unique index into struct tcp_pcb.ext_args
  */
+/*********************************************************************************************************
+** 函数名称: tcp_ext_arg_alloc_id
+** 功能描述: 从当前协议栈中申请一个空闲的、可以用来存储 ext arg 数据的数组空间的索引值
+** 输	 入: 
+** 输	 出: result - 可以用来存储 ext arg 数据的数组空间的索引值
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 u8_t
 tcp_ext_arg_alloc_id(void)
 {
@@ -3462,6 +3654,16 @@ tcp_ext_arg_alloc_id(void)
  * @param id ext_args index to set (allocated via @ref tcp_ext_arg_alloc_id)
  * @param callbacks callback table (const since it is referenced, not copied!)
  */
+/*********************************************************************************************************
+** 函数名称: tcp_ext_arg_set_callbacks
+** 功能描述: 设置指定的 tcp 协议控制块的指定的 ext arg 数组索引值处的回调函数指针
+** 输	 入: pcb - 需要在指定的 ext arg 数组索引值处设置回调函数指针的 tcp 协议控制块
+**         : id - 需要设置 ext arg 回调函数指针的 ext arg 数组索引值
+**         : callbacks - 想要设置的回调函数指针
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 tcp_ext_arg_set_callbacks(struct tcp_pcb *pcb, uint8_t id, const struct tcp_ext_arg_callbacks * const callbacks)
 {
@@ -3482,6 +3684,16 @@ tcp_ext_arg_set_callbacks(struct tcp_pcb *pcb, uint8_t id, const struct tcp_ext_
  * @param id ext_args index to set (allocated via @ref tcp_ext_arg_alloc_id)
  * @param arg data pointer to set
  */
+/*********************************************************************************************************
+** 函数名称: tcp_ext_arg_set
+** 功能描述: 设置指定的 tcp 协议控制块的指定的 ext arg 数组索引值处的回调函数参数数据
+** 输	 入: pcb - 需要在指定的 ext arg 数组索引值处设置回调函数参数数据的 tcp 协议控制块
+**         : id - 需要设置 ext arg 回调函数参数数据的 ext arg 数组索引值
+**         : arg - 想要设置的回调函数参数数据
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void tcp_ext_arg_set(struct tcp_pcb *pcb, uint8_t id, void *arg)
 {
   LWIP_ASSERT("pcb != NULL", pcb != NULL);
@@ -3500,6 +3712,15 @@ void tcp_ext_arg_set(struct tcp_pcb *pcb, uint8_t id, void *arg)
  * @param id ext_args index to set (allocated via @ref tcp_ext_arg_alloc_id)
  * @return data pointer at the given index
  */
+/*********************************************************************************************************
+** 函数名称: tcp_ext_arg_get
+** 功能描述: 获取指定的 tcp 协议控制块的指定的 ext arg 数组索引值处的回调函数参数数据
+** 输	 入: pcb - 需要在指定的 ext arg 数组索引值处获取回调函数参数数据的 tcp 协议控制块
+**         : id - 需要获取 ext arg 回调函数参数数据的 ext arg 数组索引值
+** 输	 出: void * - 成功获取到的 ext arg 回调函数参数数据
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void *tcp_ext_arg_get(const struct tcp_pcb *pcb, uint8_t id)
 {
   LWIP_ASSERT("pcb != NULL", pcb != NULL);
@@ -3513,6 +3734,14 @@ void *tcp_ext_arg_get(const struct tcp_pcb *pcb, uint8_t id)
 /** This function calls the "destroy" callback for all ext_args once a pcb is
  * freed.
  */
+/*********************************************************************************************************
+** 函数名称: tcp_ext_arg_invoke_callbacks_destroyed
+** 功能描述: 遍历指定的 ext_args 数组成员并通过调用对应的 destroy 函数回收相关资源
+** 输	 入: ext_args - 需要遍历的 ext_args 数组指针
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void
 tcp_ext_arg_invoke_callbacks_destroyed(struct tcp_pcb_ext_args *ext_args)
 {
@@ -3534,6 +3763,15 @@ tcp_ext_arg_invoke_callbacks_destroyed(struct tcp_pcb_ext_args *ext_args)
  * segment sent even on passive open. Naturally, the "accepted" callback of the
  * pcb has not been called yet!
  */
+/*********************************************************************************************************
+** 函数名称: tcp_ext_arg_invoke_callbacks_passive_open
+** 功能描述: 遍历指定的 tcp_pcb_listen->ext_args 数组成员并调用对应的 passive_open 函数
+** 输	 入: lpcb - 需要遍历的 tcp_pcb_listen 协议控制块
+**         : cpcb - passive_open 函数需要使用的函数参数
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 err_t
 tcp_ext_arg_invoke_callbacks_passive_open(struct tcp_pcb_listen *lpcb, struct tcp_pcb *cpcb)
 {

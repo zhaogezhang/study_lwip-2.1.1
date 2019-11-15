@@ -113,7 +113,7 @@ struct netdev_poll {
  */
 struct netdev_txq {
   /* txqueue length */
-  int txq_len;
+  int txq_len; /* 表示网卡设备发送队列中包含的队列成员个数 */
   
   /* net protocol thread block when queue is full */
   int txq_block; /* usually is 1 */

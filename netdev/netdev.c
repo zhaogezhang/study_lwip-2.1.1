@@ -109,6 +109,14 @@ static void netdev_lowpan6_timer (void *arg)
 #endif /* LWIP_IPV6 */
 
 /* lwip netif linkup hook function */
+/*********************************************************************************************************
+** 函数名称: netdev_netif_linkup
+** 功能描述: 根据指定网络接口的状态设置它的 IFF_RUNNING 标志
+** 输	 入: netif - 指定的网络接口指针
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void  netdev_netif_linkup (struct netif *netif)
 {
   netdev_t *netdev = (netdev_t *)(netif->state);
@@ -121,6 +129,14 @@ static void  netdev_netif_linkup (struct netif *netif)
 }
 
 /* lwip netif up hook function */
+/*********************************************************************************************************
+** 函数名称: netdev_netif_up
+** 功能描述: 在网络接口上线时调用，用来初始化指定的网络接口并设置 IFF_UP 标志
+** 输	 入: netif - 指定的网络接口指针
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void  netdev_netif_up (struct netif *netif)
 {
   netdev_t *netdev = (netdev_t *)(netif->state);
@@ -134,6 +150,14 @@ static void  netdev_netif_up (struct netif *netif)
 }
 
 /* lwip netif down hook function */
+/*********************************************************************************************************
+** 函数名称: netdev_netif_down
+** 功能描述: 在网络接口下线时调用，用来逆初始化指定的网络接口并清除 IFF_UP 标志
+** 输	 入: netif - 指定的网络接口指针
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void  netdev_netif_down (struct netif *netif)
 {
   netdev_t *netdev = (netdev_t *)(netif->state);
@@ -147,6 +171,14 @@ static void  netdev_netif_down (struct netif *netif)
 }
 
 /* lwip netif remove hook function */
+/*********************************************************************************************************
+** 函数名称: netdev_netif_remove
+** 功能描述: 在网络接口移除时调用，用来释放指定网络接口占用的资源
+** 输	 入: netif - 指定的网络接口指针
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void  netdev_netif_remove (struct netif *netif)
 {
   netdev_t *netdev = (netdev_t *)(netif->state);
@@ -156,6 +188,7 @@ static void  netdev_netif_remove (struct netif *netif)
 #endif /* LW_CFG_NET_NETDEV_MIP_EN */
 
 #if LW_CFG_NET_DEV_TXQ_EN > 0
+  /* 释放指定的网卡设备的发送队列占用的内存资源并关闭发送队列功能 */
   netdev_txq_disable(netdev);
 #endif /* LW_CFG_NET_DEV_TXQ_EN */
 
@@ -163,6 +196,16 @@ static void  netdev_netif_remove (struct netif *netif)
 }
 
 /* lwip netif igmp mac filter hook function */
+/*********************************************************************************************************
+** 函数名称: netdev_netif_igmp_mac_filter
+** 功能描述: 对指定的网络接口的 IPV4 组播过滤地址列表执行指定的操作
+** 输	 入: netif - 指定的网络接口指针
+**         : group - 指定的组播地址
+**         : action - 指定的操作类型（添加/删除）
+** 输	 出: err_t - 执行状态
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static err_t  netdev_netif_igmp_mac_filter (struct netif *netif,
                                             const ip4_addr_t *group, 
                                             enum netif_mac_filter_action action)
@@ -179,14 +222,16 @@ static err_t  netdev_netif_igmp_mac_filter (struct netif *netif,
   if (!ip4_addr_ismulticast(group)) {
     return (ERR_VAL);
   }
-  
+
+  /* 把指定的组播地址转换成与其对饮的 mac 地址 */
   hwaddr[0] = LL_IP4_MULTICAST_ADDR_0;
   hwaddr[1] = LL_IP4_MULTICAST_ADDR_1;
   hwaddr[2] = LL_IP4_MULTICAST_ADDR_2;
   hwaddr[3] = ip4_addr2(group) & 0x7f;
   hwaddr[4] = ip4_addr3(group);
   hwaddr[5] = ip4_addr4(group);
-  
+
+  /* 通过遍历指定的网络接口的组播过滤地址列表判断指定的地址是否存在 */
   mac = netdev_macfilter_find(netdev, hwaddr, &prev);
   if (action == NETIF_DEL_MAC_FILTER) {
     if (!mac) {
@@ -196,6 +241,8 @@ static err_t  netdev_netif_igmp_mac_filter (struct netif *netif,
       mac->ref--;
       return (ERR_OK);
     }
+
+	/* 把指定的 mac 地址从指定设备的组播地址链表中删除 */
     if (prev) {
       prev->next = mac->next;
     } else {
@@ -225,7 +272,8 @@ static err_t  netdev_netif_igmp_mac_filter (struct netif *netif,
     mac->type  = NETDEV_MAC_TYPE_MULTICAST;
     mac->ref   = 1;
     MEMCPY(mac->hwaddr, hwaddr, netdev->hwaddr_len);
-    
+
+    /* 把指定的 mac 地址添加到指定的设备的组播地址链表中 */
     mac->next = netdev->mac_filter;
     netdev->mac_filter = mac;
     netif_set_maddr_hook(netif, group, 1);
@@ -241,6 +289,16 @@ static err_t  netdev_netif_igmp_mac_filter (struct netif *netif,
 
 #if LWIP_IPV6 && LWIP_IPV6_MLD
 /* lwip netif mld mac filter hook function */
+/*********************************************************************************************************
+** 函数名称: netdev_netif_mld_mac_filter
+** 功能描述: 对指定的网络接口的 IPV6 组播过滤地址列表执行指定的操作
+** 输	 入: netif - 指定的网络接口指针
+**         : group - 指定的组播地址
+**         : action - 指定的操作类型（添加/删除）
+** 输	 出: err_t - 执行状态
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static err_t  netdev_netif_mld_mac_filter (struct netif *netif,
                                            const ip6_addr_t *group, 
                                            enum netif_mac_filter_action action)
@@ -319,6 +377,16 @@ static err_t  netdev_netif_mld_mac_filter (struct netif *netif,
 #endif /* LWIP_IPV6 && LWIP_IPV6_MLD */
 
 /* lwip netif ioctl hook function */
+/*********************************************************************************************************
+** 函数名称: netdev_netif_ioctl
+** 功能描述: 执行指定网络接口的 ioctl 命令
+** 输	 入: netif - 指定的网络接口指针
+**         : cmd - 需要执行的命令
+**         : arg - 执行的命令参数
+** 输	 出: err_t - 执行状态
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static int  netdev_netif_ioctl (struct netif *netif, int cmd, void *arg)
 {
   netdev_t *netdev = (netdev_t *)(netif->state);
@@ -442,12 +510,22 @@ static err_t  netdev_netif_rawoutput6 (struct netif *netif, struct pbuf *p, cons
 #endif /* LWIP_IPV6 */
 
 /* lwip netif linkoutput hook function */
+/*********************************************************************************************************
+** 函数名称: netdev_netif_linkoutput
+** 功能描述: 通过指定的网络接口把指定的以太网数据帧发送出去
+** 输	 入: netif - 指定的网络接口指针
+**         : p - 待发送的以太网数据帧
+** 输	 出: err_t - 发送状态
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static err_t  netdev_netif_linkoutput (struct netif *netif, struct pbuf *p)
 {
   netdev_t *netdev = (netdev_t *)(netif->state);
   int ret;
-  
+
 #if LW_CFG_NET_DEV_TXQ_EN > 0
+  /* 以发送队列的方式从指定网卡设备发送指定的网络数据包 */
   if (netdev->kern_txq) {
     return (netdev_txq_transmit(netdev, p));
   }
@@ -476,6 +554,16 @@ static err_t  netdev_netif_linkoutput (struct netif *netif, struct pbuf *p)
 }
 
 /* lwip netif linkinput hook function */
+/*********************************************************************************************************
+** 函数名称: netdev_netif_linkinput
+** 功能描述: 处理指定网卡设备接收到的数据包并根据网卡设备类型把接收到的数据包分发到协议栈上层
+** 输	 入: netif - 指定的网络接口指针
+**         : p - 接收到的数据包
+** 输	 出: 0 - 执行成功
+**         : -1 - 执行失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static int  netdev_netif_linkinput (netdev_t *netdev, struct pbuf *p)
 {
   err_t err;
@@ -483,6 +571,7 @@ static int  netdev_netif_linkinput (netdev_t *netdev, struct pbuf *p)
   struct eth_hdr *eh;
   
   /* fixed pad */
+  /* 处理当前数据包的 pad 数据并调整 pbuf 负载长度变量值 */
   if (netdev->net_type == NETDEV_TYPE_ETHERNET) {
 #if ETH_PAD_SIZE
     pbuf_header(p, ETH_PAD_SIZE);
@@ -502,14 +591,17 @@ static int  netdev_netif_linkinput (netdev_t *netdev, struct pbuf *p)
     }
   }
 
+  /* 输入防火墙处理函数 */
   if (netif->inner_fw && netif->inner_fw(netif, p)) {
     return (0); /* inner firewall eaten */
   }
 
+  /* 输出防火墙处理函数 */
   if (netif->outer_fw && netif->outer_fw(netdev, p)) {
     return (0); /* outer firewall eaten */
   }
-  
+
+  /* 轮训接收数据包处理函数 */
   if (netdev->poll.poll_mode == NETDEV_POLLMODE_EN) {
     if (netdev->poll.poll_input(netdev, p)) {
       return (0); /* poll hook eaten */
@@ -522,6 +614,7 @@ static int  netdev_netif_linkinput (netdev_t *netdev, struct pbuf *p)
   }
 #endif /* LW_CFG_NET_NETDEV_MIP_EN */
 
+  /* 根据当前网卡设备类型分发当前接收到的数据包到协议栈上层 */
   switch (netdev->net_type) {
   
   case NETDEV_TYPE_RAW:
@@ -547,6 +640,19 @@ static int  netdev_netif_linkinput (netdev_t *netdev, struct pbuf *p)
 }
 
 /* lwip netif linkup changed */
+/*********************************************************************************************************
+** 函数名称: netdev_netif_set_linkup
+** 功能描述: 设置指定网络接口的链路状态已经链路层网络速度信息，在链路信息发生变化时调用
+** 输	 入: netif - 指定的网络接口指针
+**         : linkup - 链路状态
+**         :      1 - link up
+**         :      0 - link down
+**         : speed_high - 链路层速度高 32 位数值（bps）
+**         : speed_low -  链路层速度低 32 位数值（bps）
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void  netdev_netif_set_linkup (netdev_t *netdev, int linkup, UINT32 speed_high, UINT32 speed_low)
 {
   UINT64 speed = ((UINT64)speed_high << 32) + speed_low;
@@ -590,6 +696,14 @@ static void  netdev_netif_set_linkup (netdev_t *netdev, int linkup, UINT32 speed
 }
 
 /* lwip netif add call back function */
+/*********************************************************************************************************
+** 函数名称: netdev_netif_init
+** 功能描述: 初始化指定的网络接口
+** 输	 入: netif - 指定的网络接口指针
+** 输	 出: err_t - 执行状态
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static err_t  netdev_netif_init (struct netif *netif)
 {
   netdev_t *netdev = (netdev_t *)(netif->state);
@@ -807,6 +921,19 @@ static void netdev_netif_mipinit (netdev_t *netdev, void  *ifparam)
 /* netdev driver call the following functions add a network interface,
  * if this device not in '/etc/if_param.ini' ip, netmask, gw is default configuration.
  * 'if_flags' defined in net/if.h such as IFF_UP, IFF_BROADCAST, IFF_RUNNING, IFF_NOARP, IFF_MULTICAST, IFF_PROMISC ... */
+/*********************************************************************************************************
+** 函数名称: netdev_add
+** 功能描述: 根据指定的参数初始化指定的网络接口并把这个网络接口添加到系统内
+** 输	 入: netdev - 指定的网络接口指针
+**         : ip - 网卡设备默认 IP 地址
+**         : netmask - 网卡设备默认网络掩码值
+**         : gw - 网卡设备默认网关地址
+**         : if_flags - 网卡设备接口标志
+** 输	 出: 0 - 执行成功
+**         : -1 - 执行失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 int  netdev_add (netdev_t *netdev, const char *ip, const char *netmask, const char *gw, int if_flags)
 {
   ip4_addr_t ip4, netmask4, gw4;
@@ -848,19 +975,22 @@ int  netdev_add (netdev_t *netdev, const char *ip, const char *netmask, const ch
   
   netif = (struct netif *)netdev->sys;
   lib_bzero(netif, sizeof(struct netif));
-  
+
+  /* 初始化默认 IP 地址 */
   if (ip) {
     ip4.addr = inet_addr(ip);
   } else {
     ip4.addr = IPADDR_ANY;
   }
   
+  /* 初始化默认网络掩码值 */
   if (netmask) {
     netmask4.addr = inet_addr(netmask);
   } else {
     netmask4.addr = IPADDR_ANY;
   }
   
+  /* 初始化默认网关地址 */
   if (gw) {
     gw4.addr = inet_addr(gw);
   } else {
@@ -870,7 +1000,8 @@ int  netdev_add (netdev_t *netdev, const char *ip, const char *netmask, const ch
   netdev->if_flags = if_flags;
   netdev->mac_filter = NULL;
   netdev->poll.poll_mode = NETDEV_POLLMODE_DIS; /* Initialize to normal mode */
-  
+
+  /* 从网络配置文件加载网口参数来初始化当前网卡设备接口 */
   if (netdev->init_flags & NETDEV_INIT_LOAD_PARAM) {
     ifparam = if_param_load(netdev->dev_name);
     if (ifparam) {
@@ -967,11 +1098,13 @@ int  netdev_add (netdev_t *netdev, const char *ip, const char *netmask, const ch
       }
     }
   }
-  
+
+  /* 从网络配置文件加载 DNS 参数来初始化当前网卡 DNS */
   if (netdev->init_flags & NETDEV_INIT_LOAD_DNS) {
     if_param_syncdns();
   }
-  
+
+  /* 向当前系统内添加一个新的网络接口设备 */
   if (netifapi_netif_add(netif, &ip4, &netmask4, &gw4, netdev, netdev_netif_init, tcpip_input)) {
     if (ifparam) {
       if_param_unload(ifparam);
@@ -1046,6 +1179,15 @@ int  netdev_add (netdev_t *netdev, const char *ip, const char *netmask, const ch
 
 /* netdev driver call the following functions delete a network interface 
  * WARNING: You MUST DO NOT lock device then call this function, it will cause a deadlock with TCP LOCK */
+/*********************************************************************************************************
+** 函数名称: netdev_delete
+** 功能描述: 删除当前系统内指定的网络接口并释放其占用的资源
+** 输	 入: netdev - 指定的网络接口指针
+** 输	 出: 0 - 执行成功
+**         : -1 - 执行失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 int  netdev_delete (netdev_t *netdev)
 {
   struct netif *netif, *tmp_netif;
@@ -1083,6 +1225,16 @@ int  netdev_delete (netdev_t *netdev)
 }
 
 /* netdev driver get netdev index */
+/*********************************************************************************************************
+** 函数名称: netdev_index
+** 功能描述: 获取指定网络接口设备在当前系统内的索引值
+** 输	 入: netdev - 指定的网络接口指针
+** 输	 出: 0 - 执行成功
+**         : -1 - 执行失败
+**         : index - 指定网路接口的索引值
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 int  netdev_index (netdev_t *netdev, unsigned int *index)
 {
   struct netif *netif;
@@ -1103,6 +1255,16 @@ int  netdev_index (netdev_t *netdev, unsigned int *index)
 }
 
 /* netdev set firewall */
+/*********************************************************************************************************
+** 函数名称: netdev_firewall
+** 功能描述: 设置指定网络接口的输出防火墙函数指针
+** 输	 入: netdev - 指定的网络接口指针
+**         : fw - 输出防火墙函数指针
+** 输	 出: 0 - 执行成功
+**         : -1 - 执行失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 int  netdev_firewall (netdev_t *netdev, int (*fw)(netdev_t *, struct pbuf *))
 {
   struct netif *netif;
@@ -1118,6 +1280,16 @@ int  netdev_firewall (netdev_t *netdev, int (*fw)(netdev_t *, struct pbuf *))
 }
 
 /* netdev set qoshook */
+/*********************************************************************************************************
+** 函数名称: netdev_qoshook
+** 功能描述: 设置指定网络接口的输出方向的 QOS 函数指针
+** 输	 入: netdev - 指定的网络接口指针
+**         : qos - QOS 函数指针
+** 输	 出: 0 - 执行成功
+**         : -1 - 执行失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 int  netdev_qoshook (netdev_t *netdev, UINT8 (*qos)(netdev_t *, struct pbuf *, UINT8, UINT8, UINT16, UINT8 *))
 {
   struct netif *netif;
@@ -1133,6 +1305,17 @@ int  netdev_qoshook (netdev_t *netdev, UINT8 (*qos)(netdev_t *, struct pbuf *, U
 }
 
 /* netdev traversal */
+/*********************************************************************************************************
+** 函数名称: netdev_foreache
+** 功能描述: 遍历当前系统内的每一个网络接口，当这个网络接口的 ioctl 函数指针是 netdev_netif_ioctl，则
+**         : 在这个网路接口上调用指定的操作函数
+** 输	 入: pfunc - 当 ioctl 函数指针匹配时需要调用的操作函数
+**         : arg1.arg5 - 指定的操作函数参数
+** 输	 出: 0 - 执行成功
+**         : -1 - 执行失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 int  netdev_foreache (FUNCPTR pfunc, void *arg0, void *arg1, 
                       void *arg2, void *arg3, void *arg4, void *arg5)
 {
@@ -1156,6 +1339,17 @@ int  netdev_foreache (FUNCPTR pfunc, void *arg0, void *arg1,
 }
 
 /* netdev start poll mode */
+/*********************************************************************************************************
+** 函数名称: netdev_poll_enable
+** 功能描述: 设置指定网卡设备的轮训接收数据包函数指针并使能其轮训接收数据包功能并关闭网卡设备中断
+** 输	 入: netdev - 指定的网络接口指针
+**         : poll_input - 轮训接收函数指针
+**         : poll_arg - 轮训接收函数参数
+** 输	 出: 0 - 执行成功
+**         : -1 - 执行失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 int  netdev_poll_enable (netdev_t *netdev, int (*poll_input)(struct netdev *, struct pbuf *), void *poll_arg)
 {
   if (!netdev || !poll_input || (netdev->magic_no != NETDEV_MAGIC)) {
@@ -1184,6 +1378,15 @@ int  netdev_poll_enable (netdev_t *netdev, int (*poll_input)(struct netdev *, st
 }
 
 /* netdev stop poll mode */
+/*********************************************************************************************************
+** 函数名称: netdev_poll_disable
+** 功能描述: 关闭指定网卡设备的轮训接收数据包功能并使能网卡设备中断
+** 输	 入: netdev - 指定的网络接口指针
+** 输	 出: 0 - 执行成功
+**         : -1 - 执行失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 int  netdev_poll_disable (netdev_t *netdev)
 {
   if (!netdev || (netdev->magic_no != NETDEV_MAGIC)) {
@@ -1201,6 +1404,15 @@ int  netdev_poll_disable (netdev_t *netdev)
 }
 
 /* netdev poll mode service */
+/*********************************************************************************************************
+** 函数名称: netdev_poll_svc
+** 功能描述: 
+** 输	 入: netdev - 指定的网络接口指针
+** 输	 出: 0 - 执行成功
+**         : -1 - 执行失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 int  netdev_poll_svc (netdev_t *netdev)
 {
   if (!netdev || (netdev->magic_no != NETDEV_MAGIC)) {
@@ -1219,6 +1431,15 @@ int  netdev_poll_svc (netdev_t *netdev)
 }
 
 /* netdev find (MUST in NETIF_LOCK mode) */
+/*********************************************************************************************************
+** 函数名称: netdev_find_by_index
+** 功能描述: 查找当前系统内指定索引值的网络接口设备
+** 输	 入: netdev - 指定的设备索引值
+** 输	 出: netdev_t - 找到的网卡设备指针
+**         : NULL - 没找到对应的网卡设备
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 netdev_t *netdev_find_by_index (unsigned int index)
 {
   struct netif *netif;
@@ -1235,6 +1456,15 @@ netdev_t *netdev_find_by_index (unsigned int index)
   return (NULL);
 }
 
+/*********************************************************************************************************
+** 函数名称: netdev_find_by_ifname
+** 功能描述: 查找当前系统内指定网路接口名的网络接口设备
+** 输	 入: if_name - 指定的接口名
+** 输	 出: netdev_t - 找到的网卡设备指针
+**         : NULL - 没找到对应的网卡设备
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 netdev_t *netdev_find_by_ifname (const char *if_name)
 {
   struct netif *netif;
@@ -1255,6 +1485,15 @@ netdev_t *netdev_find_by_ifname (const char *if_name)
   return (NULL);
 }
 
+/*********************************************************************************************************
+** 函数名称: netdev_find_by_devname
+** 功能描述: 查找当前系统内指定网卡设备名的网络接口设备
+** 输	 入: if_name - 指定的设备名
+** 输	 出: netdev_t - 找到的网卡设备指针
+**         : NULL - 没找到对应的网卡设备
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 netdev_t *netdev_find_by_devname (const char *dev_name)
 {
   struct netif *netif;
@@ -1279,6 +1518,16 @@ netdev_t *netdev_find_by_devname (const char *dev_name)
 }
 
 /* netdev get name */
+/*********************************************************************************************************
+** 函数名称: netdev_ifname
+** 功能描述: 获取指定网卡设备的网络接口名
+** 输	 入: netdev - 指定的网卡设备指针
+** 输	 出: 0 - 获取成功
+**         : -1 - 获取失败
+**         : ifname - 获取到的网络接口名
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 int  netdev_ifname (netdev_t *netdev, char *ifname)
 {
   struct netif *netif;
@@ -1329,6 +1578,16 @@ int  netdev_get_ar_hdr (netdev_t *netdev, UINT16 *ar_hdr)
 
 /* netdev set/get tcp ack frequecy 
  * NOTICE: you can call these function after netdev_add() */
+/*********************************************************************************************************
+** 函数名称: netdev_set_tcpaf
+** 功能描述: 设置指定网卡设备的 tcp 应答频率
+** 输	 入: netdev - 指定的网卡设备指针
+**         : tcpaf - 需要设置的 tcp 应答频率
+** 输	 出: 0 - 操作成功
+**         : -1 - 操作失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 int  netdev_set_tcpaf (netdev_t *netdev, UINT8 tcpaf)
 {
   struct netif *netif;
@@ -1355,6 +1614,16 @@ int  netdev_set_tcpaf (netdev_t *netdev, UINT8 tcpaf)
   return (0);
 }
 
+/*********************************************************************************************************
+** 函数名称: netdev_get_tcpaf
+** 功能描述: 获取指定网卡设备的 tcp 应答频率
+** 输	 入: netdev - 指定的网卡设备指针
+**         : tcpaf - 获取到的 tcp 应答频率
+** 输	 出: 0 - 操作成功
+**         : -1 - 操作失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 int  netdev_get_tcpaf (netdev_t *netdev, UINT8 *tcpaf)
 {
   struct netif *netif;
@@ -1372,6 +1641,16 @@ int  netdev_get_tcpaf (netdev_t *netdev, UINT8 *tcpaf)
 
 /* netdev set/get tcp window size
  * NOTICE: you can call these function after netdev_add() */
+/*********************************************************************************************************
+** 函数名称: netdev_set_tcpwnd
+** 功能描述: 设置指定网卡设备的 tcp 窗口大小
+** 输	 入: netdev - 指定的网卡设备指针
+**         : tcpwnd - 要设置的 tcp 窗口大小
+** 输	 出: 0 - 操作成功
+**         : -1 - 操作失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 int  netdev_set_tcpwnd (netdev_t *netdev, UINT32 tcpwnd)
 {
   struct netif *netif;
@@ -1398,6 +1677,16 @@ int  netdev_set_tcpwnd (netdev_t *netdev, UINT32 tcpwnd)
   return (0);
 }
 
+/*********************************************************************************************************
+** 函数名称: netdev_get_tcpwnd
+** 功能描述: 获取指定网卡设备的 tcp 窗口大小
+** 输	 入: netdev - 指定的网卡设备指针
+**         : tcpwnd - 获取到的 tcp 窗口大小
+** 输	 出: 0 - 操作成功
+**         : -1 - 操作失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 int  netdev_get_tcpwnd (netdev_t *netdev, UINT32 *tcpwnd)
 {
   struct netif *netif;
@@ -1416,6 +1705,17 @@ int  netdev_get_tcpwnd (netdev_t *netdev, UINT32 *tcpwnd)
 /* if netdev link status changed has been detected, 
  * driver must call the following functions 
  * NOTICE: In order to avoid deadlocks (between TCPIP LOCK and Device Lock. so wei use netjob do this) */
+/*********************************************************************************************************
+** 函数名称: netdev_set_linkup
+** 功能描述: 设置指定网络接口的链路状态已经链路层网络速度信息，在链路信息发生变化时调用
+** 输	 入: netdev - 指定的网卡设备指针
+**         : linkup - 链路状态
+**         : speed - 链路层速度（bps）
+** 输	 出: 0 - 操作成功
+**         : -1 - 操作失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 int  netdev_set_linkup (netdev_t *netdev, int linkup, UINT64 speed)
 {
   UINT32 speed_high = (UINT32)((speed >> 32) & 0xffffffff);
@@ -1425,6 +1725,16 @@ int  netdev_set_linkup (netdev_t *netdev, int linkup, UINT64 speed)
                     (void *)linkup, (void *)speed_high, (void *)speed_low, 0, 0));
 }
 
+/*********************************************************************************************************
+** 函数名称: netdev_get_linkup
+** 功能描述: 获取指定网络接口的链路状态
+** 输	 入: netdev - 指定的网卡设备指针
+** 输	 出: 0 - 操作成功
+**         : -1 - 操作失败
+**         : linkup - 获取到的链路状态
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 int  netdev_get_linkup (netdev_t *netdev, int *linkup)
 {
   struct netif *netif;
@@ -1449,6 +1759,16 @@ int  netdev_get_linkup (netdev_t *netdev, int *linkup)
 /* netdev linkup watchdog function 
  * NOTICE: one netdev can ONLY add one linkup_wd function.
  *         when netdev removed driver must delete watchdog function manually. */
+/*********************************************************************************************************
+** 函数名称: netdev_linkup_wd_add
+** 功能描述: 为指定的网卡设备设置链路检测函数，主要在设备热插拔时检测并更新网卡设备链路状态
+** 输	 入: netdev - 指定的网卡设备指针
+**         : linkup_wd - 检测并更新网卡设备链路状态的函数指针
+** 输	 出: 0 - 操作成功
+**         : -1 - 操作失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 int  netdev_linkup_wd_add (netdev_t *netdev, void  (*linkup_wd)(netdev_t *))
 {
 #if LW_CFG_HOTPLUG_EN > 0
@@ -1459,6 +1779,16 @@ int  netdev_linkup_wd_add (netdev_t *netdev, void  (*linkup_wd)(netdev_t *))
   return (-1);
 }
 
+/*********************************************************************************************************
+** 函数名称: netdev_linkup_wd_delete
+** 功能描述: 删除指定网卡设备的链路热插拔检测函数
+** 输	 入: netdev - 指定的网卡设备指针
+**         : linkup_wd - 检测并更新网卡设备链路状态的函数指针
+** 输	 出: 0 - 操作成功
+**         : -1 - 操作失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 int  netdev_linkup_wd_delete (netdev_t *netdev, void  (*linkup_wd)(netdev_t *))
 {
 #if LW_CFG_HOTPLUG_EN > 0
@@ -1489,6 +1819,16 @@ int  netdev_macfilter_count (netdev_t *netdev)
 }
 
 /* netdev mac filter add a hwaddr and allow to recv */
+/*********************************************************************************************************
+** 函数名称: netdev_macfilter_add
+** 功能描述: 向指定网卡设备的硬件设备地址过滤链表中添加新的地址过滤成员
+** 输	 入: netdev - 指定的网卡设备指针
+**         : hwaddr - 需要添加的新的硬件过滤地址
+** 输	 出: 0 - 操作成功
+**         : -1 - 操作失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 int  netdev_macfilter_add (netdev_t *netdev, const UINT8 hwaddr[])
 {
   struct netdev_mac *mac, *prev;
@@ -1541,6 +1881,16 @@ int  netdev_macfilter_add (netdev_t *netdev, const UINT8 hwaddr[])
 }
 
 /* netdev mac filter delete a hwaddr */
+/*********************************************************************************************************
+** 函数名称: netdev_macfilter_delete
+** 功能描述: 从指定网卡设备的硬件设备地址过滤链表中删除指定的地址过滤成员
+** 输	 入: netdev - 指定的网卡设备指针
+**         : hwaddr - 需要删除的硬件过滤地址
+** 输	 出: 0 - 操作成功
+**         : -1 - 操作失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 int  netdev_macfilter_delete (netdev_t *netdev, const UINT8 hwaddr[])
 {
   struct netdev_mac *mac, *prev;
@@ -1580,6 +1930,18 @@ int  netdev_macfilter_delete (netdev_t *netdev, const UINT8 hwaddr[])
 }
 
 /* netdev mac filter find */
+/*********************************************************************************************************
+** 函数名称: netdev_macfilter_find
+** 功能描述: 通过遍历指定的网络接口的组播过滤地址列表判断指定的地址是否存在
+** 输	 入: netif - 指定的网络接口指针
+**         : hwaddr - 指定的组播地址
+**         : prev_save - 如果存在，表示找到的组播地址前向成员指针
+** 输	 出: ha - 找到的组播地址成员指针
+**         : prev_save - 找到的组播地址前向成员指针
+**         : NULL - 表示没找到指定的组播地址
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static struct netdev_mac *netdev_macfilter_find (netdev_t *netdev, const UINT8 hwaddr[], struct netdev_mac **prev_save)
 {
   struct netdev_mac *ha;
@@ -1599,6 +1961,14 @@ static struct netdev_mac *netdev_macfilter_find (netdev_t *netdev, const UINT8 h
 }
 
 /* netdev mac filter clean */
+/*********************************************************************************************************
+** 函数名称: netdev_macfilter_clean
+** 功能描述: 把指定网卡设备的所有硬件过滤地址链表中的成员全部清除并释放其占用的内存资源
+** 输	 入: netdev - 指定的网卡设备指针
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void netdev_macfilter_clean (netdev_t *netdev)
 {
   struct netdev_mac *ha;
@@ -1613,6 +1983,17 @@ static void netdev_macfilter_clean (netdev_t *netdev)
 /* if netdev detected a packet in netdev buffer, driver can call this function to receive this packet.
    notify:0 can transmit 1: can receive 
    qen:0 do not use netjob queue 1:use netjob queue */
+/*********************************************************************************************************
+** 函数名称: netdev_notify
+** 功能描述: 处理指定网卡设备接收到的数据包并根据网卡设备类型把接收到的数据包分发到协议栈上层
+** 输	 入: netdev - 指定的网卡设备指针
+**         : inout - 数据包传输方向，必须是 LINK_INPUT
+**         : q_en - 是否通过工作队列来执行数据包处理函数
+** 输	 出: 0 - 执行成功
+**         : -1 - 执行失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 int  netdev_notify (struct netdev *netdev, netdev_inout inout, int q_en)
 {
   if (!netdev || (netdev->magic_no != NETDEV_MAGIC)) {
@@ -1688,6 +2069,15 @@ int  netdev_notify_ex_arg (struct netdev *netdev, netdev_inout inout, int q_en, 
   return (0);
 }
 
+/*********************************************************************************************************
+** 函数名称: netdev_notify_clear
+** 功能描述: 从当前系统内的网卡数据包处理工作队列中删除待执行的工作 job
+** 输	 入: netdev - 指定的网卡设备指针
+** 输	 出: 0 - 执行成功
+**         : -1 - 执行失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 int  netdev_notify_clear (struct netdev *netdev)
 {
   if (!netdev || (netdev->magic_no != NETDEV_MAGIC)) {
@@ -1725,6 +2115,16 @@ int  netdev_notify_clear_ex_arg (struct netdev *netdev, unsigned int qindex, voi
 }
 
 /* netdev statistical information update functions in:1 input 0:output */
+/*********************************************************************************************************
+** 函数名称: netdev_statinfo_total_add
+** 功能描述: 统计指定网卡设备指定数据包方向一共处理过的数据字节数
+** 输	 入: netdev - 指定的网卡设备指针
+**         : inout - 数据包方向
+**         : bytes - 本次统计的字节数
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void netdev_statinfo_total_add (netdev_t *netdev, netdev_inout inout, UINT32 bytes)
 {
   struct netif *netif = (struct netif *)netdev->sys;
@@ -1737,6 +2137,15 @@ void netdev_statinfo_total_add (netdev_t *netdev, netdev_inout inout, UINT32 byt
   }
 }
 
+/*********************************************************************************************************
+** 函数名称: netdev_statinfo_ucasts_inc
+** 功能描述: 统计指定网卡设备指定数据包方向处理过的单播数据包包数
+** 输	 入: netdev - 指定的网卡设备指针
+**         : inout - 数据包方向
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void netdev_statinfo_ucasts_inc (netdev_t *netdev, netdev_inout inout)
 {
   struct netif *netif = (struct netif *)netdev->sys;
@@ -1749,6 +2158,15 @@ void netdev_statinfo_ucasts_inc (netdev_t *netdev, netdev_inout inout)
   }
 }
 
+/*********************************************************************************************************
+** 函数名称: netdev_statinfo_mcasts_inc
+** 功能描述: 统计指定网卡设备指定数据包方向处理过的多播数据包包数
+** 输	 入: netdev - 指定的网卡设备指针
+**         : inout - 数据包方向
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void netdev_statinfo_mcasts_inc (netdev_t *netdev, netdev_inout inout)
 {
   struct netif *netif = (struct netif *)netdev->sys;
@@ -1761,6 +2179,15 @@ void netdev_statinfo_mcasts_inc (netdev_t *netdev, netdev_inout inout)
   }
 }
 
+/*********************************************************************************************************
+** 函数名称: netdev_statinfo_discards_inc
+** 功能描述: 统计指定网卡设备指定数据包方向丢弃的数据包包数
+** 输	 入: netdev - 指定的网卡设备指针
+**         : inout - 数据包方向
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void netdev_statinfo_discards_inc (netdev_t *netdev, netdev_inout inout)
 {
   struct netif *netif = (struct netif *)netdev->sys;
@@ -1773,6 +2200,15 @@ void netdev_statinfo_discards_inc (netdev_t *netdev, netdev_inout inout)
   }
 }
 
+/*********************************************************************************************************
+** 函数名称: netdev_statinfo_errors_inc
+** 功能描述: 统计指定网卡设备指定数据包方向错误的数据包包数
+** 输	 入: netdev - 指定的网卡设备指针
+**         : inout - 数据包方向
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void netdev_statinfo_errors_inc (netdev_t *netdev, netdev_inout inout)
 {
   struct netif *netif = (struct netif *)netdev->sys;
@@ -1802,6 +2238,14 @@ void netdev_statinfo_collisions_inc (netdev_t *netdev)
 #endif /* LW_CFG_NET_DEV_TXQ_EN */
 
 /* netdev link statistical information update functions */
+/*********************************************************************************************************
+** 函数名称: netdev_linkinfo_err_inc
+** 功能描述: 统计指定网卡设备链路层所有类型错误计数值
+** 输	 入: netdev - 指定的网卡设备指针
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void netdev_linkinfo_err_inc (netdev_t *netdev)
 {
 #if LW_CFG_NET_DEV_TXQ_EN > 0
@@ -1814,6 +2258,14 @@ void netdev_linkinfo_err_inc (netdev_t *netdev)
   }
 }
 
+/*********************************************************************************************************
+** 函数名称: netdev_linkinfo_lenerr_inc
+** 功能描述: 统计指定网卡设备链路层包长度错误计数值
+** 输	 入: netdev - 指定的网卡设备指针
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void netdev_linkinfo_lenerr_inc(netdev_t *netdev)
 {
 #if LW_CFG_NET_DEV_TXQ_EN > 0
@@ -1826,6 +2278,14 @@ void netdev_linkinfo_lenerr_inc(netdev_t *netdev)
   }
 }
 
+/*********************************************************************************************************
+** 函数名称: netdev_linkinfo_chkerr_inc
+** 功能描述: 统计指定网卡设备链路层包校验错误计数值
+** 输	 入: netdev - 指定的网卡设备指针
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void netdev_linkinfo_chkerr_inc(netdev_t *netdev)
 {
 #if LW_CFG_NET_DEV_TXQ_EN > 0
@@ -1838,6 +2298,14 @@ void netdev_linkinfo_chkerr_inc(netdev_t *netdev)
   }
 }
 
+/*********************************************************************************************************
+** 函数名称: netdev_linkinfo_memerr_inc
+** 功能描述: 统计指定网卡设备链路层内存错误计数值
+** 输	 入: netdev - 指定的网卡设备指针
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void netdev_linkinfo_memerr_inc(netdev_t *netdev)
 {
 #if LW_CFG_NET_DEV_TXQ_EN > 0
@@ -1850,6 +2318,14 @@ void netdev_linkinfo_memerr_inc(netdev_t *netdev)
   }
 }
 
+/*********************************************************************************************************
+** 函数名称: netdev_linkinfo_drop_inc
+** 功能描述: 统计指定网卡设备链路层丢包计数值
+** 输	 入: netdev - 指定的网卡设备指针
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void netdev_linkinfo_drop_inc(netdev_t *netdev)
 {
 #if LW_CFG_NET_DEV_TXQ_EN > 0
@@ -1862,6 +2338,14 @@ void netdev_linkinfo_drop_inc(netdev_t *netdev)
   }
 }
 
+/*********************************************************************************************************
+** 函数名称: netdev_linkinfo_recv_inc
+** 功能描述: 统计指定网卡设备链路层接收数据包计数值
+** 输	 入: netdev - 指定的网卡设备指针
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void netdev_linkinfo_recv_inc(netdev_t *netdev)
 {
 #if LW_CFG_NET_DEV_TXQ_EN > 0
@@ -1874,6 +2358,14 @@ void netdev_linkinfo_recv_inc(netdev_t *netdev)
   }
 }
 
+/*********************************************************************************************************
+** 函数名称: netdev_linkinfo_xmit_inc
+** 功能描述: 统计指定网卡设备链路层发送数据包计数值
+** 输	 入: netdev - 指定的网卡设备指针
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void netdev_linkinfo_xmit_inc(netdev_t *netdev)
 {
 #if LW_CFG_NET_DEV_TXQ_EN > 0
@@ -1914,11 +2406,29 @@ struct pbuf *netdev_pbuf_alloc (UINT16 len)
   return (p);
 }
 
+/*********************************************************************************************************
+** 函数名称: netdev_pbuf_free
+** 功能描述: 释放指定的 pbuf 数据包结构
+** 输	 入: p - 需要释放的 pbuf 数据包结构指针
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void netdev_pbuf_free (struct pbuf *p)
 {
   pbuf_free(p);
 }
 
+/*********************************************************************************************************
+** 函数名称: netdev_pbuf_alloc_ram
+** 功能描述: 从当前系统内申请指定负载空间的 pbuf 结构并在其头部预留出指定字节数的空间
+** 输	 入: len - 需要申请的 pbuf 负载空间大小
+**		   : res - 需要预留的空间字节数
+** 输	 出: p - 成功申请的 pbuf 指针
+**		   : NULL - 申请失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 struct pbuf *netdev_pbuf_alloc_ram (UINT16 len, UINT16 res)
 {
   struct pbuf *p = pbuf_alloc(PBUF_RAW, (u16_t)(len + res), PBUF_POOL);
@@ -1931,6 +2441,15 @@ struct pbuf *netdev_pbuf_alloc_ram (UINT16 len, UINT16 res)
 }
 
 /* netdev transmit function can ref this packet? */
+/*********************************************************************************************************
+** 函数名称: netdev_pbuf_can_ref
+** 功能描述: 判断指定的 pbuf 数据结构是否可以用来当做零拷贝数据包缓冲区
+** 输	 入: p - 需要判断的 pbuf 数据结构
+** 输	 出: TRUE - 可以当做零拷贝数据包缓冲区
+**		   : FALSE - 不可以当做零拷贝数据包缓冲区
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 BOOL netdev_pbuf_can_ref (struct pbuf *p)
 {
   if (p->tot_len == p->len) {
@@ -1943,12 +2462,30 @@ BOOL netdev_pbuf_can_ref (struct pbuf *p)
 }
 
 /* get netdev data buffer */
+/*********************************************************************************************************
+** 函数名称: netdev_pbuf_data
+** 功能描述: 获取指定的 pbuf 数据包结构的负载空间指针
+** 输	 入: p - 指定的 pbuf 数据结构
+** 输	 出: void * - 获取到的负载空间指针
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void *netdev_pbuf_data (struct pbuf *p)
 {
   return (p->payload);
 }
 
 /* netdev input buffer push */
+/*********************************************************************************************************
+** 函数名称: netdev_pbuf_push
+** 功能描述: 把指定的 pbuf 的负载指针（pbuf->payload）位置向“前”调整指定字节数
+** 输	 入: p - 指定的 pbuf 数据结构
+**         : len - 需要移动的字节数
+** 输	 出: UINT8 * - 移动后的 pbuf 负载空间地址
+**         : NULL - 操作失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 UINT8 *netdev_pbuf_push (struct pbuf *p, UINT16 len)
 {
   if (p) {
@@ -1961,6 +2498,16 @@ UINT8 *netdev_pbuf_push (struct pbuf *p, UINT16 len)
 }
 
 /* netdev input buffer pop */
+/*********************************************************************************************************
+** 函数名称: netdev_pbuf_push
+** 功能描述: 把指定的 pbuf 的负载指针（pbuf->payload）位置向“后”调整指定字节数
+** 输	 入: p - 指定的 pbuf 数据结构
+**         : len - 需要移动的字节数
+** 输	 出: UINT8 * - 移动后的 pbuf 负载空间地址
+**         : NULL - 操作失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 UINT8 *netdev_pbuf_pull (struct pbuf *p, UINT16 len)
 {
   if (p) {
@@ -1973,12 +2520,28 @@ UINT8 *netdev_pbuf_pull (struct pbuf *p, UINT16 len)
 }
 
 /* netdev input buffer cat */
+/*********************************************************************************************************
+** 函数名称: netdev_pbuf_push
+** 功能描述: 把指定的两个 pbuf 结构链接到一起，组成一个 pbuf 结构
+** 输	 入: h - 放在头部的 pbuf 结构
+**         : t - 放在尾部的 pbuf 结构
+**         : ref_t - 表示链接后，尾部的 pbuf 是否需要增加引用计数
+** 输	 出: 0 - 操作成功
+**         : -1 - 操作失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 int netdev_pbuf_link (struct pbuf *h, struct pbuf *t, BOOL ref_t)
 {
   if (h && t) {
     if (ref_t) {
+	  /* 把两个指定的 pbuf chain 合并成一个 pbuf chain，即把指定的尾部方向 pbuf chain 链表链接到
+         指定的 pbuf chain 头部方向链表上，并把连接点后端 pbuf 的引用计数加 1，又因为 pbuf 在申请
+         后默认引用计数值为 1，所以连接点后端 pbuf 的引用计数至少为 2 */
       pbuf_chain(h, t);
     } else {
+      /* 把两个指定的 pbuf chain 合并成一个 pbuf chain，即把指定的尾部方向 pbuf chain 链表链接到
+         指定的 pbuf chain 头部方向链表上，但是连接点后端 pbuf 的引用计数“不”加 1 */
       pbuf_cat(h, t);
     }
     return (0);
@@ -1988,6 +2551,16 @@ int netdev_pbuf_link (struct pbuf *h, struct pbuf *t, BOOL ref_t)
 }
 
 /* netdev input buffer trunc */
+/*********************************************************************************************************
+** 函数名称: netdev_pbuf_push
+** 功能描述: 收缩指定的 pbuf 应用负载空间长度到指定的值（把 pbuf 链表尾部多余的 pbuf 释放掉）
+** 输	 入: p - 需要收缩的 pbuf 指针
+**		   : len - 收缩后的 pbuf 应用负载空间长度
+** 输	 出: 0 - 操作成功
+**         : -1 - 操作失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 int netdev_pbuf_trunc (struct pbuf *p, UINT16 len)
 {
   if (p && (p->tot_len >= len)) {
@@ -1999,6 +2572,15 @@ int netdev_pbuf_trunc (struct pbuf *p, UINT16 len)
 }
 
 /* netdev buffer get vlan info */
+/*********************************************************************************************************
+** 函数名称: netdev_pbuf_vlan_present
+** 功能描述: 判断指定的以太网数据帧是否包含 VLAN 字段数据
+** 输	 入: p - 需要判断的以太网数据帧
+** 输	 出: 1 - 包含 VLAN 字段数据
+**         : 0 - 不包含 VLAN 字段数据
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 int netdev_pbuf_vlan_present (struct pbuf *p)
 {
   struct eth_hdr *ethhdr = (struct eth_hdr *)((u8_t *)p->payload - ETH_PAD_SIZE);
@@ -2006,6 +2588,16 @@ int netdev_pbuf_vlan_present (struct pbuf *p)
   return (ethhdr->type == PP_HTONS(ETHTYPE_VLAN));
 }
 
+/*********************************************************************************************************
+** 函数名称: netdev_pbuf_vlan_id
+** 功能描述: 获取指定的以太网数据帧中的 VLAN 字段中的 VLAN ID 字段数据内容
+** 输	 入: p - 指定的以太网数据帧
+** 输	 出: 1 - 包含 VLAN 字段数据
+**         : 0 - 不包含 VLAN 字段数据
+**         : vlanid - 获取到的 VLAN ID 字段数据内容
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 int netdev_pbuf_vlan_id (struct pbuf *p, UINT16 *vlanid)
 {
   struct eth_hdr *ethhdr = (struct eth_hdr *)((u8_t *)p->payload - ETH_PAD_SIZE);
@@ -2021,6 +2613,16 @@ int netdev_pbuf_vlan_id (struct pbuf *p, UINT16 *vlanid)
   return (-1);
 }
 
+/*********************************************************************************************************
+** 函数名称: netdev_pbuf_vlan_proto
+** 功能描述: 获取指定的以太网数据帧中的 VLAN 字段中的 VLAN PROTO 字段数据内容
+** 输	 入: p - 指定的以太网数据帧
+** 输	 出: 1 - 包含 VLAN 字段数据
+**         : 0 - 不包含 VLAN 字段数据
+**         : vlanproto - 获取到的 VLAN PROTO 字段数据内容
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 int netdev_pbuf_vlan_proto (struct pbuf *p, UINT16 *vlanproto)
 {
   struct eth_hdr *ethhdr = (struct eth_hdr *)((u8_t *)p->payload - ETH_PAD_SIZE);
@@ -2039,6 +2641,15 @@ int netdev_pbuf_vlan_proto (struct pbuf *p, UINT16 *vlanproto)
 #if LW_CFG_NET_DEV_PROTO_ANALYSIS > 0
 
 /* netdev buffer get ethernet & vlan header */
+/*********************************************************************************************************
+** 函数名称: netdev_pbuf_ethhdr
+** 功能描述: 获取指定的以太网数据帧的帧头地址以及帧头字节长度
+** 输	 入: p - 指定的以太网数据帧
+** 输	 出: ethhdr - 获取到的以太网帧头地址
+**         : hdrlen - 获取到的以太网帧头字节长度
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 struct eth_hdr *netdev_pbuf_ethhdr (struct pbuf *p, int *hdrlen)
 {
   struct eth_hdr *ethhdr = (struct eth_hdr *)((u8_t *)p->payload - ETH_PAD_SIZE);
@@ -2050,6 +2661,16 @@ struct eth_hdr *netdev_pbuf_ethhdr (struct pbuf *p, int *hdrlen)
   return (ethhdr);
 }
 
+/*********************************************************************************************************
+** 函数名称: netdev_pbuf_vlanhdr
+** 功能描述: 获取指定的以太网数据帧的 VLAN 头地址以及 VLAN 头字节长度
+** 输	 入: p - 指定的以太网数据帧
+** 输	 出: vlan - 获取到的 VLAN 头地址
+**         : hdrlen - 获取到的 VLAN 头字节长度
+**         : NULL - 当前帧没有 VLAN 头信息
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 struct eth_vlan_hdr *netdev_pbuf_vlanhdr (struct pbuf *p, int *hdrlen)
 {
   struct eth_hdr *ethhdr = (struct eth_hdr *)((u8_t *)p->payload - ETH_PAD_SIZE);
@@ -2066,11 +2687,24 @@ struct eth_vlan_hdr *netdev_pbuf_vlanhdr (struct pbuf *p, int *hdrlen)
 }
 
 /* netdev buffer get proto header */
+/*********************************************************************************************************
+** 函数名称: netdev_pbuf_iphdr
+** 功能描述: 获取指定的以太网数据帧的 IP 头地址以及 IP 头字节长度
+** 输	 入: p - 指定的以太网数据帧
+**         : offset - IP 协议头在指定以太网数据帧中的偏移量
+** 输	 出: iphdr - 获取到的 IP 头地址
+**         : hdrlen - 获取到的 IP 头字节长度
+**         : NULL - 获取失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 struct ip_hdr *netdev_pbuf_iphdr (struct pbuf *p, int offset, int *hdrlen)
 {
   struct pbuf *q;
   u16_t out_offset;
 
+  /* 从指定的 pbuf/pbuf chain 中的负载空间中，找到包含指定偏移量的 pbuf 以及偏移量的余数部分
+     所谓的偏移量余数部分指的是通过我们指定的偏移量找到 pbuf 之后，剩余的在 pbuf 内的偏移量 */
   q = pbuf_skip(p, (u16_t)offset, &out_offset);
   if (!q) {
     return (NULL);
@@ -2144,6 +2778,17 @@ out:
   return (NULL);
 }
 
+/*********************************************************************************************************
+** 函数名称: netdev_pbuf_tcphdr
+** 功能描述: 获取指定的以太网数据帧的 TCP 头地址以及 TCP 头字节长度
+** 输	 入: p - 指定的以太网数据帧
+**         : offset - TCP 协议头在指定以太网数据帧中的偏移量
+** 输	 出: iphdr - 获取到的 TCP 头地址
+**         : hdrlen - 获取到的 TCP 头字节长度
+**         : NULL - 获取失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 struct tcp_hdr *netdev_pbuf_tcphdr (struct pbuf *p, int offset, int *hdrlen)
 {
   struct pbuf *q;
@@ -2165,6 +2810,17 @@ struct tcp_hdr *netdev_pbuf_tcphdr (struct pbuf *p, int offset, int *hdrlen)
   return (NULL);
 }
 
+/*********************************************************************************************************
+** 函数名称: netdev_pbuf_udphdr
+** 功能描述: 获取指定的以太网数据帧的 UDP 头地址以及 UDP 头字节长度
+** 输	 入: p - 指定的以太网数据帧
+**         : offset - UDP 协议头在指定以太网数据帧中的偏移量
+** 输	 出: iphdr - 获取到的 UDP 头地址
+**         : hdrlen - 获取到的 UDP 头字节长度
+**         : NULL - 获取失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 struct udp_hdr *netdev_pbuf_udphdr (struct pbuf *p, int offset, int *hdrlen)
 {
   struct pbuf *q;

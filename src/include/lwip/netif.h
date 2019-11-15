@@ -427,7 +427,9 @@ struct netif {
   u8_t link_type;
   /** (estimate) link speed */
   u32_t link_speed;
+
   /** timestamp at last change made (up/down) */
+  /* 上一次更改网卡链路状态时的时间戳 */
   u32_t ts;
   /** counters */
   struct stats_mib2_netif_ctrs mib2_counters;

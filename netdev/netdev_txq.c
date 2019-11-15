@@ -63,6 +63,7 @@ static LW_SPINLOCK_CA_DEFINE_CACHE_ALIGN(netdev_txq_sl) = LW_SPIN_CA_INITIALIZER
 /*
  * netdev_txq_desc
  */
+/* 发送队列成员结构，在发送队列中的每一个成员通过链表的方式链接在一起 */
 union netdev_txq_desc {
   union netdev_txq_desc *next;   /* buffer free link */
   struct pbuf *p;   /* packet */
@@ -75,16 +76,25 @@ struct netdev_txq_ctl {
   sys_mbox_t txq_mbox;  /* txmsg */
   sys_sem_t txq_semquit; /* tx-thread quit sem */
   
-  int txq_len;
+  int txq_len;                     /* 表示当前发送队列一共包含的队列成员个数 */
   int txq_txquit; /* tx-thread quit */
   BOOL txq_block; /* send message with block */
   
   /* txdesc buffer */
-  union netdev_txq_desc *txq_mem;
-  union netdev_txq_desc *txq_free;
+  union netdev_txq_desc *txq_mem;  /* 表示当前发送队列中为队列成员分配的内存首地址 */
+  union netdev_txq_desc *txq_free; /* 表示当前发送队列中第一个空闲成员的地址 */
 };
 
 /* netdev txqueue desc allocate */
+/*********************************************************************************************************
+** 函数名称: netdev_txq_desc_alloc
+** 功能描述: 从指定的发送队列中申请一个空闲成员
+** 注     释: 这个函数没有处理指定的发送队列为空的情况
+** 输	 入: txq_ctl - 指定的发送队列指针
+** 输	 出: desc - 成功申请的队列成员指针
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static LW_INLINE union netdev_txq_desc *
 netdev_txq_desc_alloc (struct netdev_txq_ctl *txq_ctl)
 {
@@ -102,6 +112,15 @@ netdev_txq_desc_alloc (struct netdev_txq_ctl *txq_ctl)
 }
 
 /* netdev txqueue desc free */
+/*********************************************************************************************************
+** 函数名称: netdev_txq_desc_free
+** 功能描述: 释放一个指定的队列成员到指定的发送队列中
+** 输	 入: txq_ctl - 指定的发送队列指针
+**         : desc - 需要释放的队列成员
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static LW_INLINE void 
 netdev_txq_desc_free (struct netdev_txq_ctl *txq_ctl, union netdev_txq_desc *desc)
 {
@@ -114,6 +133,15 @@ netdev_txq_desc_free (struct netdev_txq_ctl *txq_ctl, union netdev_txq_desc *des
 }
 
 /* netdev txqueue thread */
+/*********************************************************************************************************
+** 函数名称: netdev_txq_proc
+** 功能描述: 网络协议栈的发送队列处理线程函数，用来循环获取待发送的网络数据包，然后通过调用网卡设备的
+**         : 发送函数把网络数据包发送出去，并回收 pbuf 数据包占用的内存空间到发送队列 
+** 输	 入: arg - 线程参数
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void netdev_txq_proc (void *arg)
 {
   netdev_t *netdev = (netdev_t *)arg;
@@ -136,6 +164,7 @@ static void netdev_txq_proc (void *arg)
     }
 #endif
 
+    /* 发送并回收指定的 pbuf 数据包 */
     netdev->drv->transmit(netdev, desc->p);
     pbuf_free(desc->p);
     netdev_txq_desc_free(txq_ctl, desc);
@@ -143,6 +172,15 @@ static void netdev_txq_proc (void *arg)
 }
 
 /* pbuf is HEAP or POOL? ref it */
+/*********************************************************************************************************
+** 函数名称: netdev_txq_can_ref
+** 功能描述: 判断指定的 pbuf 是否可以当做发送零拷贝缓冲区
+** 输	 入: p - 需要判断的 pbuf 指针
+** 输	 出: 1 - 可以用作发送零拷贝缓冲区
+**         : 0 - 不可以用作发送零拷贝缓冲区
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static LW_INLINE int 
 netdev_txq_can_ref (struct pbuf *p)
 {
@@ -158,17 +196,29 @@ netdev_txq_can_ref (struct pbuf *p)
 }
 
 /* netdev txqueue transmit */
+/*********************************************************************************************************
+** 函数名称: netdev_txq_transmit
+** 功能描述: 以发送队列的方式从指定网卡设备发送指定的网络数据包
+** 输	 入: netdev - 指定的网卡设备指针
+**         : p - 待发送的网络数据包
+** 输	 出: err_t - 执行状态
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 err_t  netdev_txq_transmit (netdev_t *netdev, struct pbuf *p)
 {
   struct netdev_txq_ctl *txq_ctl = (struct netdev_txq_ctl *)netdev->kern_txq;
   union netdev_txq_desc *desc;
-  
+
+  /* 从指定的发送队列中申请一个空闲成员 */
   desc = netdev_txq_desc_alloc(txq_ctl);
   if (LW_UNLIKELY(!desc)) {
     netdev_linkinfo_memerr_inc(netdev);
     return (ERR_IF);
   }
-  
+
+  /* 判断指定的 pbuf 是否可以当做发送零拷贝缓冲区，如果可以则直接使用，如果不可以
+   * 则把这个 pbuf 中的数据克隆到新的 pbuf 中 */
   if (netdev_txq_can_ref(p)) {
     pbuf_ref(p);
     desc->p = p;
@@ -184,7 +234,8 @@ err_t  netdev_txq_transmit (netdev_t *netdev, struct pbuf *p)
       }
     }
   }
-  
+
+  /* 给发送队列线程函数发送一个消息邮箱，让其把待发送的网络数据包发送出去 */
   if (txq_ctl->txq_block) {
     sys_mbox_post(&txq_ctl->txq_mbox, desc);
   
@@ -201,6 +252,16 @@ err_t  netdev_txq_transmit (netdev_t *netdev, struct pbuf *p)
 }
 
 /* enable netdev txqueue */
+/*********************************************************************************************************
+** 函数名称: netdev_txq_enable
+** 功能描述: 为指定的网卡设备创建一个发送队列并使能发送队列功能
+** 输	 入: netdev - 指定的网卡设备指针
+**         : txq - 指定的发送队列参数
+** 输	 出: 0 - 执行成功
+**         : -1 - 执行失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 int  netdev_txq_enable (netdev_t *netdev, struct netdev_txq *txq)
 {
   int i, errlevel = 0;
@@ -229,13 +290,15 @@ int  netdev_txq_enable (netdev_t *netdev, struct netdev_txq *txq)
   } else {
     len = txq->txq_len;
   }
-  
+
+  /* 分配发送队列管理数据结构需要的内存空间 */
   txq_ctl = (struct netdev_txq_ctl *)mem_malloc(sizeof(struct netdev_txq_ctl));
   if (!txq_ctl) {
     errno = ENOMEM;
     return (-1);
   }
-  
+
+  /* 分配发送队列中所有队列成员需要的内存空间 */
   txq_ctl->txq_mem = (union netdev_txq_desc *)mem_malloc(sizeof(union netdev_txq_desc) * (len + 2));
   if (!txq_ctl->txq_mem) {
     errno = ENOMEM;
@@ -292,6 +355,14 @@ error:
 }
 
 /* disable netdev txqueue */
+/*********************************************************************************************************
+** 函数名称: netdev_txq_disable
+** 功能描述: 释放指定的网卡设备的发送队列占用的内存资源并关闭发送队列功能
+** 输	 入: netdev - 指定的网卡设备指针
+** 输	 出: 0 - 执行成功
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 int  netdev_txq_disable (netdev_t *netdev)
 {
   struct netdev_txq_ctl *txq_ctl;
@@ -329,6 +400,15 @@ int  netdev_txq_disable (netdev_t *netdev)
 }
 
 /* netdev txqueue is enable */
+/*********************************************************************************************************
+** 函数名称: netdev_txq_isenable
+** 功能描述: 判断指定的网卡设备的发送队列功能是否使能
+** 输	 入: netdev - 指定的网卡设备指针
+** 输	 出: 1 - 已经使能
+**         : 0 - 没有使能
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 int  netdev_txq_isenable (netdev_t *netdev)
 {
   if (netdev->kern_txq) {
@@ -339,6 +419,14 @@ int  netdev_txq_isenable (netdev_t *netdev)
 }
 
 /* netdev txqueue length */
+/*********************************************************************************************************
+** 函数名称: netdev_txq_length
+** 功能描述: 获取指定网卡设备发送队列中一共包含的队列成员个数
+** 输	 入: netdev - 指定的网卡设备指针
+** 输	 出: int - 指定网卡设备发送队列成员个数
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 int  netdev_txq_length (netdev_t *netdev)
 {
   struct netdev_txq_ctl *txq_ctl;

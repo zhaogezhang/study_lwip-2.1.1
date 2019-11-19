@@ -67,9 +67,9 @@ struct vnetdev {
   struct netdev netdev; /* net device */
   int id; /* id number */
   int type; /* network type */
-  LW_LIST_RING_HEADER q; /* recv queue */
-  size_t cur_size; /* current data size in buffer */
-  size_t buf_size; /* buffer size */
+  LW_LIST_RING_HEADER q; /* recv queue，把当前虚拟网卡接收到的数据包通过队列方式组织起来 */
+  size_t cur_size; /* current data size in buffer，表示当前在缓冲区中已经存在的待发送数据包字节数 */
+  size_t buf_size; /* buffer size，用来存储待发送的数据包 */
   vndnotify notify; /* notify function */
 };
 

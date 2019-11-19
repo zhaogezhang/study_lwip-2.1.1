@@ -54,23 +54,34 @@
 #include "netdev.h"
 
 /* add a IP to netdev init callback */
+/*********************************************************************************************************
+** 函数名称: netdev_mipif_init
+** 功能描述: 根据指定的主机网卡设备信息初始化指定的从机网口设备
+** 输	 入: mipif - 需要创建的虚拟网口设备指针
+** 输	 出: ERR_OK - 创建成功
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static err_t netdev_mipif_init (struct netif *mipif)
 {
+  /* 获取需要创建的从机网卡设备所属的主机网卡设备指针（即我们指定的网卡设备）*/
   netdev_t *netdev = (netdev_t *)(mipif->state);
   struct netif *netif = (struct netif *)netdev->sys;
   
 #if LWIP_NETIF_HOSTNAME
   mipif->hostname = netif->hostname;
 #endif /* LWIP_NETIF_HOSTNAME */
-  
+
+  /* 初始化从机网口设备名 */
   mipif->name[0] = 'm';
   mipif->name[1] = 'i';
-  
+
+  /* 复制指定网口设备的函数信息和参数信息到新创建的从机网口设备中 */
   MIB2_INIT_NETIF(mipif, netif->link_type, netif->link_speed);
 
   /* no ipv6, no multicast, no promisc */
   mipif->flags = (u8_t)(netif->flags & ~(NETIF_FLAG_IGMP | NETIF_FLAG_MLD6));
-  
+
   mipif->output = netif->output;
   mipif->linkoutput = netif->linkoutput;
   
@@ -84,6 +95,7 @@ static err_t netdev_mipif_init (struct netif *mipif)
   netif_set_tcp_wnd(mipif, netif->tcp_wnd);
 
   /* link to list */
+  /* 把当前新创建的从机网口设备添加到指定主机网口设备的从机网口设备链表上 */
   mipif->mipif = netif->mipif;
   netif->mipif = mipif;
   mipif->masterif = netif;
@@ -92,6 +104,18 @@ static err_t netdev_mipif_init (struct netif *mipif)
 }
 
 /* add a IP to netdev (use slave interface) */
+/*********************************************************************************************************
+** 函数名称: netdev_mipif_add
+** 功能描述: 为指定的网卡设备创建一个指定参数的从机网卡设备
+** 输	 入: netdev - 需要创建从机网卡设备的网卡设备指针
+**         : ip4 - 从机网卡是 IP 地址
+**         : netmask4 - 从机网卡的网络掩码地址
+**         : gw4 - 从机网卡的网关地址
+** 输	 出: 0 - 创建成功
+**         : -1 - 创建失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 int netdev_mipif_add (netdev_t *netdev, const ip4_addr_t *ip4, 
                       const ip4_addr_t *netmask4, const ip4_addr_t *gw4)
 {
@@ -106,14 +130,17 @@ int netdev_mipif_add (netdev_t *netdev, const ip4_addr_t *ip4,
     errno = EINVAL;
     return (-1);
   }
-  
+
+  /* 获取指定网卡设备的网络接口指针 */
   netif = (struct netif *)netdev->sys;
-  
+
+  /* 判断新创建的从机接口 IP 地址和其所属网口 IP 地址是否相同 */
   if (ip4_addr_cmp(netif_ip4_addr(netif), ip4)) {
     errno = EADDRINUSE;
     return (-1);
   }
-  
+
+  /* 遍历指定网络接口的从机接口链表，判断新创建的从机接口设备是否已经存在 */
   NETIF_MIPIF_FOREACH(netif, mipif) {
     if (ip4_addr_cmp(netif_ip4_addr(mipif), ip4)) {
       errno = EADDRINUSE;
@@ -127,7 +154,8 @@ int netdev_mipif_add (netdev_t *netdev, const ip4_addr_t *ip4,
     return (-1);
   }
   lib_bzero(mipif, sizeof(struct netif));
-  
+
+  /* 为指定的网卡设备创建并初始化一个新的从机网口设备 */
   if (netifapi_netif_add(mipif, ip4, netmask4, gw4, netdev, netdev_mipif_init, tcpip_input)) {
     errno = ENOSPC;
     return (-1);
@@ -137,6 +165,16 @@ int netdev_mipif_add (netdev_t *netdev, const ip4_addr_t *ip4,
 }
 
 /* delete a IP from netdev (use slave interface) */
+/*********************************************************************************************************
+** 函数名称: netdev_mipif_delete
+** 功能描述: 从指定网卡设备的从机网卡设备链表中删除指定 IP 地址的从机网卡设备
+** 输	 入: netdev - 需要删除从机网卡设备的网卡设备指针
+**         : ip4 - 需要删除的从机网卡设备 IP 地址
+** 输	 出: 0 - 移除成功
+**         : -1 - 移除失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 int netdev_mipif_delete (netdev_t *netdev, const ip4_addr_t *ip4)
 {
   struct netif *netif, *mipif, *tmp;
@@ -145,12 +183,14 @@ int netdev_mipif_delete (netdev_t *netdev, const ip4_addr_t *ip4)
     errno = EINVAL;
     return (-1);
   }
-  
+
+  /* 判断待删除的 IP 地址是否合法 */
   if (ip4_addr_isany(ip4)) {
     errno = EINVAL;
     return (-1);
   }
-  
+
+  /* 获取指定网卡设备的网络接口指针 */
   netif = (struct netif *)netdev->sys;
   if (!netif->mipif) {
     errno = EINVAL;
@@ -164,15 +204,19 @@ int netdev_mipif_delete (netdev_t *netdev, const ip4_addr_t *ip4)
     
   } else {
     tmp = mipif;
+
+    /* 遍历指定网卡的从机网卡链表，查找和指定 IP 地址匹配的从机网卡设备 */
     for (mipif = mipif->mipif; mipif != NULL; mipif = mipif->mipif) {
       if (ip4_addr_cmp(netif_ip4_addr(mipif), ip4)) {
+	  	/* 如果找到匹配的从机网卡设备，则从链表中删除 */
         tmp->mipif = mipif->mipif;
         break;
       }
       tmp = mipif;
     }
   }
-  
+
+  /* 调用指定从机网卡设备移除回调函数并释放占用的内存资源 */
   if (mipif) {
     netifapi_netif_remove(mipif);
     mem_free(mipif);
@@ -184,6 +228,14 @@ int netdev_mipif_delete (netdev_t *netdev, const ip4_addr_t *ip4)
 }
 
 /* clean all slave interface */
+/*********************************************************************************************************
+** 函数名称: netdev_mipif_clean
+** 功能描述: 删除指定网卡设备上所有的从机网卡设备
+** 输	 入: netdev - 需要删除从机网卡设备的主机网卡设备指针
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void netdev_mipif_clean (netdev_t *netdev)
 {
   struct netif *netif, *mipif, *tmp;
@@ -204,6 +256,16 @@ void netdev_mipif_clean (netdev_t *netdev)
 }
 
 /* set all slave interface update mtu, linkup, updown */
+/*********************************************************************************************************
+** 函数名称: netdev_mipif_update
+** 功能描述: 遍历指定主机网卡设备的从机网卡设备链表，根据主机网卡设备网卡速度、链路状态和 MTU 大小
+**         : 信息更新所有从机网卡设备的网卡速度、链路状态和 MTU 大小信息
+** 注     释: 这个函数在主机网卡设备信息发生变化时候调用，用来把变化同步到所有从机网卡设备中
+** 输	 入: netdev - 需要同步参数的主机网卡设备指针
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void netdev_mipif_update (netdev_t *netdev)
 {
   struct netif *netif, *mipif;
@@ -213,7 +275,8 @@ void netdev_mipif_update (netdev_t *netdev)
   }
   
   netif = (struct netif *)netdev->sys;
-  
+
+  /* 遍历指定主机网卡设备的从机网卡设备链表，根据主机网卡设备信息更新所有从机网卡设备信息 */
   NETIF_MIPIF_FOREACH(netif, mipif) {
     mipif->mtu = netif->mtu;
     mipif->link_speed = netif->link_speed;
@@ -227,6 +290,16 @@ void netdev_mipif_update (netdev_t *netdev)
 }
 
 /* set all slave interface update tcp ack freq, tcp wnd */
+/*********************************************************************************************************
+** 函数名称: netdev_mipif_tcpupd
+** 功能描述: 遍历指定主机网卡设备的从机网卡设备链表，根据主机网卡设备的 tcp 应答频率和窗口大小信息
+**         : 更新所有从机网卡的 tcp 应答频率和窗口大小信息
+** 注     释: 这个函数在主机网卡设备信息发生变化时候调用，用来把变化同步到所有从机网卡设备中
+** 输	 入: netdev - 需要同步参数的主机网卡设备指针
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void netdev_mipif_tcpupd (netdev_t *netdev)
 {
   struct netif *netif, *mipif;
@@ -244,6 +317,16 @@ void netdev_mipif_tcpupd (netdev_t *netdev)
 }
 
 /* set all slave interface hwaddr */
+/*********************************************************************************************************
+** 函数名称: netdev_mipif_tcpupd
+** 功能描述: 遍历指定主机网卡设备的从机网卡设备链表，根据主机网卡设备的硬件设备地址信息更新所有
+**         : 从机网卡的硬件设备地址信息
+** 注     释: 这个函数在主机网卡设备信息发生变化时候调用，用来把变化同步到所有从机网卡设备中
+** 输	 入: netdev - 需要同步参数的主机网卡设备指针
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void netdev_mipif_hwaddr (netdev_t *netdev)
 {
   struct netif *netif, *mipif;
@@ -260,6 +343,16 @@ void netdev_mipif_hwaddr (netdev_t *netdev)
 }
 
 /* set all slave interface find */
+/*********************************************************************************************************
+** 函数名称: netdev_mipif_tcpupd
+** 功能描述: 根据接收到的数据包的目的 IP 地址找到一个合适的、用来处理接收到的数据包的网络接口
+** 注     释: 这个函数在主机网卡设备接收到链路层数据包的时候调用
+** 输	 入: netdev - 接收到数据包的主机网卡设备指针
+**         : p - 接收到的链路层数据包
+** 输	 出: netif - 用来处理接收到的数据包的设备接口指针
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 struct netif *netdev_mipif_search (netdev_t *netdev, struct pbuf *p)
 {
   u16_t next_offset;
@@ -334,8 +427,10 @@ struct netif *netdev_mipif_search (netdev_t *netdev, struct pbuf *p)
   if (ip4_addr_cmp(netif_ip4_addr(netif), &destip)) {
     return (netif);
   }
-  
+
+  /* 遍历指定主机网卡设备的从机网卡设备链表，查找和指定目的 IP 地址匹配的从机网卡设备 */
   NETIF_MIPIF_FOREACH(netif, mipif) {
+    /* 如果找到和指定目的 IP 匹配的从机网卡设备，则返回这个从机网卡设备指针 */
     if (ip4_addr_cmp(netif_ip4_addr(mipif), &destip)) {
       return (mipif);
     }

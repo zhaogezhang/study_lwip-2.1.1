@@ -557,7 +557,7 @@ static err_t  netdev_netif_linkoutput (struct netif *netif, struct pbuf *p)
 /*********************************************************************************************************
 ** 函数名称: netdev_netif_linkinput
 ** 功能描述: 处理指定网卡设备接收到的数据包并根据网卡设备类型把接收到的数据包分发到协议栈上层
-** 输	 入: netif - 指定的网络接口指针
+** 输	 入: netdev - 指定的网卡设备指针
 **         : p - 接收到的数据包
 ** 输	 出: 0 - 执行成功
 **         : -1 - 执行失败
@@ -609,6 +609,8 @@ static int  netdev_netif_linkinput (netdev_t *netdev, struct pbuf *p)
   }
 
 #if LW_CFG_NET_NETDEV_MIP_EN > 0
+  /* 如果当前接收到数据包的主机网卡设备上有从机网卡设备，则根据接收到的数据包的
+     目的 IP 地址找到一个合适的、用来处理接收到的数据包的网络接口 */
   if (netif->mipif) {
     netif = netdev_mipif_search(netdev, p);
   }

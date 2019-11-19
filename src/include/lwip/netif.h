@@ -516,17 +516,29 @@ void netif_set_default(struct netif *netif);
 void netif_set_ipaddr(struct netif *netif, const ip4_addr_t *ipaddr);
 void netif_set_netmask(struct netif *netif, const ip4_addr_t *netmask);
 void netif_set_gw(struct netif *netif, const ip4_addr_t *gw);
+
 /** @ingroup netif_ip4 */
+/* 获取指定网口的 IPv4 地址 */
 #define netif_ip4_addr(netif)    ((const ip4_addr_t*)ip_2_ip4(&((netif)->ip_addr)))
+
 /** @ingroup netif_ip4 */
+/* 获取指定网口的网络掩码地址 */
 #define netif_ip4_netmask(netif) ((const ip4_addr_t*)ip_2_ip4(&((netif)->netmask)))
+
 /** @ingroup netif_ip4 */
+/* 获取指定网口的网关地址 */
 #define netif_ip4_gw(netif)      ((const ip4_addr_t*)ip_2_ip4(&((netif)->gw)))
+
 /** @ingroup netif_ip4 */
+/* 获取指定网口的 IPv4 地址 */
 #define netif_ip_addr4(netif)    ((const ip_addr_t*)&((netif)->ip_addr))
+
 /** @ingroup netif_ip4 */
+/* 获取指定网口的网络掩码地址 */
 #define netif_ip_netmask4(netif) ((const ip_addr_t*)&((netif)->netmask))
+
 /** @ingroup netif_ip4 */
+/* 获取指定网口的网关地址 */
 #define netif_ip_gw4(netif)      ((const ip_addr_t*)&((netif)->gw))
 #endif /* LWIP_IPV4 */
 

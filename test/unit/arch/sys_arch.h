@@ -38,13 +38,15 @@ typedef int sys_sem_t;
 typedef int sys_mutex_t;
 #define sys_mutex_valid(mutex) (((mutex) != NULL)
 
+/* 当前协议栈定义的消息邮箱数据结构 */
 struct lwip_mbox {
   void* sem;
-  void** q_mem;
-  unsigned int head, tail;
-  int size;
-  int used;
+  void** q_mem;            /* 用来存储消息邮箱指针的指针数组，是一个环形结构 */
+  unsigned int head, tail; /* 表示环形消息邮箱指针数组的头位置和尾位置 */
+  int size;                /* 表示环形消息邮箱中有效消息缓冲区个数 */
+  int used;                /* 表示环形消息邮箱中当前可用消息个数 */
 };
+
 typedef struct lwip_mbox sys_mbox_t;
 #define SYS_MBOX_NULL NULL
 #define sys_mbox_valid(mbox) ((mbox != NULL) && ((mbox)->sem != NULL)  && ((mbox)->sem != (void*)-1))

@@ -73,6 +73,14 @@ sys_init(void)
 
 test_sys_arch_waiting_fn the_waiting_fn;
 
+/*********************************************************************************************************
+** 函数名称: test_sys_arch_wait_callback
+** 功能描述: 设置当前系统的 the_waiting_fn 函数指针到指定的值
+** 输	 入: waiting_fn - 需要设置的函数指针值
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 test_sys_arch_wait_callback(test_sys_arch_waiting_fn waiting_fn)
 {
@@ -108,6 +116,7 @@ sys_arch_sem_wait(sys_sem_t *sem, u32_t timeout)
   u32_t ret = 0;
   LWIP_ASSERT("sem != NULL", sem != NULL);
   LWIP_ASSERT("*sem > 0", *sem > 0);
+  
   if (*sem == 1) {
     /* need to wait */
     if(!timeout)
@@ -137,6 +146,7 @@ sys_arch_sem_wait(sys_sem_t *sem, u32_t timeout)
       ret = 1;
     }
   }
+  
   LWIP_ASSERT("*sem > 0", *sem > 0);
   (*sem)--;
   LWIP_ASSERT("*sem > 0", *sem > 0);
@@ -297,6 +307,18 @@ sys_mbox_trypost_fromisr(sys_mbox_t *q, void *msg)
   return sys_mbox_trypost(q, msg);
 }
 
+/*********************************************************************************************************
+** 函数名称: sys_arch_mbox_fetch
+** 功能描述: 尝试从指定的环形消息邮箱中获取一个消息并存储到指定的缓冲区中
+** 输	 入: q - 获取消息的环形消息邮箱句柄
+**         : timeout - 表示在没有有效消息邮箱时是否需要等待
+** 输	 出: msg - 用来存储获取到的消息缓冲区
+**         : 0 - 获取成功
+**         : 1 - 获取超时
+**         : >1 - 成功获取到消息所等待时间 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 u32_t
 sys_arch_mbox_fetch(sys_mbox_t *q, void **msg, u32_t timeout)
 {
@@ -315,6 +337,8 @@ sys_arch_mbox_fetch(sys_mbox_t *q, void **msg, u32_t timeout)
     {
       /* wait infinite */
       LWIP_ASSERT("cannot wait without waiting callback", the_waiting_fn != NULL);
+
+	  /* 无限等待当前环形消息邮箱中有可用的消息 */
       do {
         int expectSomething = the_waiting_fn(NULL, q);
         LWIP_ASSERT("q->used >= 0", q->used >= 0);
@@ -324,6 +348,7 @@ sys_arch_mbox_fetch(sys_mbox_t *q, void **msg, u32_t timeout)
           ret--;
         }
       } while(q->used == 0);
+		
     }
     else
     {
@@ -331,22 +356,36 @@ sys_arch_mbox_fetch(sys_mbox_t *q, void **msg, u32_t timeout)
         int expectSomething = the_waiting_fn(NULL, q);
         LWIP_ASSERT("expecting item available count but it's 0", !expectSomething || (q->used > 0));
       }
+	  
       LWIP_ASSERT("q->used >= 0", q->used >= 0);
+	  
       if (q->used == 0) {
         if(msg) {
           *msg = NULL;
         }
         return SYS_ARCH_TIMEOUT;
       }
+	  
       ret = 1;
     }
   }
+  
   LWIP_ASSERT("q->used > 0", q->used > 0);
   ret2 = sys_arch_mbox_tryfetch(q, msg);
   LWIP_ASSERT("got no message", ret2 == 0);
   return ret;
 }
 
+/*********************************************************************************************************
+** 函数名称: sys_arch_mbox_tryfetch
+** 功能描述: 从指定的环形消息邮箱中获取一个消息并存储到指定的缓冲区中
+** 输	 入: q - 获取消息的环形消息邮箱句柄
+** 输	 出: msg - 用来存储获取到的消息缓冲区
+**         : 0 - 成功获取到消息邮箱
+**         : SYS_ARCH_TIMEOUT - 获取消息邮箱失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 u32_t
 sys_arch_mbox_tryfetch(sys_mbox_t *q, void **msg)
 {
@@ -359,14 +398,18 @@ sys_arch_mbox_tryfetch(sys_mbox_t *q, void **msg)
   if (!q->used) {
     return SYS_ARCH_TIMEOUT;
   }
+
+  /* 获取系统内当前环形消息邮箱缓冲区中 q->tail 位置处的消息指针 */
   if(msg) {
     *msg = q->q_mem[q->tail];
   }
 
+  /* 更新系统内当前环形消息邮箱缓冲区的 q->tail 索引值 */
   q->tail++;
   if (q->tail >= (unsigned int)q->size) {
     q->tail = 0;
   }
+  
   q->used--;
   LWIP_ASSERT("q->used >= 0", q->used >= 0);
   return 0;

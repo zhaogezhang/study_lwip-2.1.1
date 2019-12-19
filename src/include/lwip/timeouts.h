@@ -90,11 +90,12 @@ extern const int lwip_num_cyclic_timers;
  */
 typedef void (* sys_timeout_handler)(void *arg);
 
+/* 表示当前系统的超时事件 */
 struct sys_timeo {
-  struct sys_timeo *next;
-  u32_t time;
-  sys_timeout_handler h;
-  void *arg;
+  struct sys_timeo *next; /* 下一个超时事件指针 */
+  u32_t time;             /* 当前超时事件的绝对时间 */
+  sys_timeout_handler h;  /* 当前超时事件的超时处理函数 */
+  void *arg;              /* 当前超时事件的超时处理函数参数 */
 #if LWIP_DEBUG_TIMERNAMES
   const char* handler_name;
 #endif /* LWIP_DEBUG_TIMERNAMES */

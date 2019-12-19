@@ -70,11 +70,12 @@
 #define LWIP_MAX_TIMEOUT  0x7fffffff
 
 /* Check if timer's expiry time is greater than time and care about u32_t wraparounds */
+/* 比较指定的时间 t 是否小于指定的时间 compare_to，返回 1 表示时间 t 小于 compare_to，返回 0 表示时间 t 不小于 compare_to */
 #define TIME_LESS_THAN(t, compare_to) ( (((u32_t)((t)-(compare_to))) > LWIP_MAX_TIMEOUT) ? 1 : 0 )
 
 /** This array contains all stack-internal cyclic timers. To get the number of
  * timers, use LWIP_ARRAYSIZE() */
-/* 定义当前协议栈中使用的所有软件循环定时器 */
+/* 定义当前协议栈中使用的所有软件周期循环定时器 */
 const struct lwip_cyclic_timer lwip_cyclic_timers[] = {
 #if LWIP_TCP
   /* The TCP timer is a special case: it does not have to run always and
@@ -122,11 +123,22 @@ const int lwip_num_cyclic_timers = LWIP_ARRAYSIZE(lwip_cyclic_timers);
 #if LWIP_TIMERS && !LWIP_TIMERS_CUSTOM
 
 /** The one and only timeout list */
+/* 系统内所有的超时事件都以超时时间按照升序的方式链接成一个链表，next_timeout 指向这个链表
+ * 的链表头，所以 next_timeout 指向的成员就是和当前系统时间最接近的下一个超时事件 */
 static struct sys_timeo *next_timeout;
 
 static u32_t current_timeout_due_time;
 
 #if LWIP_TESTMODE
+/*********************************************************************************************************
+** 函数名称: sys_timeouts_get_next_timeout
+** 功能描述: 获取当前系统内距离当前时间最接近的下一个超时事件的结构体指针
+** 输	 入: 
+** 输	 出: sys_timeo - 获取到的下一个超时事假结构体指针
+**         : NULL - 当前系统不存在超时事件
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 struct sys_timeo**
 sys_timeouts_get_next_timeout(void)
 {
@@ -136,6 +148,7 @@ sys_timeouts_get_next_timeout(void)
 
 #if LWIP_TCP
 /** global variable that shows if the tcp timer is currently scheduled or not */
+/* 全局变量，表示当前 tcp 模块定时器是否正在被调度 */
 static int tcpip_tcp_timer_active;
 
 /**
@@ -143,6 +156,14 @@ static int tcpip_tcp_timer_active;
  *
  * @param arg unused argument
  */
+/*********************************************************************************************************
+** 函数名称: tcpip_tcp_timer
+** 功能描述: 调用 tcp 模块的软件定时器处理函数并重新启动 tcp 模块软件定时器，实现周期循环处理的功能逻辑
+** 输	 入: arg - 超时处理函数参数
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void
 tcpip_tcp_timer(void *arg)
 {
@@ -165,12 +186,22 @@ tcpip_tcp_timer(void *arg)
  * the reason is to have the TCP timer only running when
  * there are active (or time-wait) PCBs.
  */
+/*********************************************************************************************************
+** 函数名称: tcp_timer_needed
+** 功能描述: 根据当前系统内 tcp 模块定时器状态判断是否需要启动 tcp 模块定时器，如果需要启动，则启动
+** 输	 入: 
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 tcp_timer_needed(void)
 {
   LWIP_ASSERT_CORE_LOCKED();
 
   /* timer is off but needed again? */
+  /* 如果当前 tcp 模块定时器没有被调度且 tcp_active_pcbs 或者 tcp_tw_pcbs 链表不为空
+   * 则启动 tcp 模块定时器 */
   if (!tcpip_tcp_timer_active && (tcp_active_pcbs || tcp_tw_pcbs)) {
     /* enable and start timer */
     tcpip_tcp_timer_active = 1;
@@ -179,6 +210,17 @@ tcp_timer_needed(void)
 }
 #endif /* LWIP_TCP */
 
+/*********************************************************************************************************
+** 函数名称: sys_timeout_abs
+** 功能描述: 根据函数参数动态生成一个 sys_timeo 成员并以超时时间按照升序的方式链接到 next_timeout 链表中
+** 输	 入: abs_time - 超时时间点的绝对时间
+**         : handler - 超时处理函数
+**         : arg - 超时处理函数的参数
+**         : handler_name - 超时处理函数名
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void
 #if LWIP_DEBUG_TIMERNAMES
 sys_timeout_abs(u32_t abs_time, sys_timeout_handler handler, void *arg, const char *handler_name)
@@ -188,12 +230,14 @@ sys_timeout_abs(u32_t abs_time, sys_timeout_handler handler, void *arg)
 {
   struct sys_timeo *timeout, *t;
 
+  /* 从当前系统内存池中申请一个 sys_timeo 结构体占用的内存空间 */
   timeout = (struct sys_timeo *)memp_malloc(MEMP_SYS_TIMEOUT);
   if (timeout == NULL) {
     LWIP_ASSERT("sys_timeout: timeout != NULL, pool MEMP_SYS_TIMEOUT is empty", timeout != NULL);
     return;
   }
 
+  /* 初始化 sys_timeo 结构的成员字段 */
   timeout->next = NULL;
   timeout->h = handler;
   timeout->arg = arg;
@@ -205,10 +249,12 @@ sys_timeout_abs(u32_t abs_time, sys_timeout_handler handler, void *arg)
                              (void *)timeout, abs_time, handler_name, (void *)arg));
 #endif /* LWIP_DEBUG_TIMERNAMES */
 
+  /* 把刚刚创建的 timeout 成员以超时时间按照升序的方式链接到 next_timeout 链表中 */
   if (next_timeout == NULL) {
     next_timeout = timeout;
     return;
   }
+  
   if (TIME_LESS_THAN(timeout->time, next_timeout->time)) {
     timeout->next = next_timeout;
     next_timeout = timeout;
@@ -229,6 +275,14 @@ sys_timeout_abs(u32_t abs_time, sys_timeout_handler handler, void *arg)
  * @param arg unused argument
  */
 #if !LWIP_TESTMODE
+/*********************************************************************************************************
+** 函数名称: lwip_cyclic_timer
+** 功能描述: 调用参数指定的循环超时事件处理函数并根据循环周期重新启动这个循环超时事件
+** 输	 入: arg - 循环处理超时事件指针
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static
 #endif
 void
@@ -241,10 +295,15 @@ lwip_cyclic_timer(void *arg)
 #if LWIP_DEBUG_TIMERNAMES
   LWIP_DEBUGF(TIMERS_DEBUG, ("tcpip: %s()\n", cyclic->handler_name));
 #endif
+
+  /* 调用当前 cyclic 超时事件的超时处理函数 */
   cyclic->handler();
 
+  /* 根据当前系统时间和当前循环超时事件循环周期计算下一个超时时间点 */
   now = sys_now();
   next_timeout_time = (u32_t)(current_timeout_due_time + cyclic->interval_ms);  /* overflow handled by TIME_LESS_THAN macro */ 
+
+  /* 重新启动当前循环超时事件软件定时器 */
   if (TIME_LESS_THAN(next_timeout_time, now)) {
     /* timer would immediately expire again -> "overload" -> restart without any correction */
 #if LWIP_DEBUG_TIMERNAMES
@@ -264,10 +323,21 @@ lwip_cyclic_timer(void *arg)
 }
 
 /** Initialize this module */
+/*********************************************************************************************************
+** 函数名称: sys_timeouts_init
+** 功能描述: 初始化当前系统的循环超时事件功能模块，遍历当前系统在 lwip_cyclic_timers 循环超时事件
+**         : 数组中定义的每一个循环超时事件并启动
+** 输	 入: 
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void sys_timeouts_init(void)
 {
   size_t i;
+  
   /* tcp_tmr() at index 0 is started on demand */
+  /* 遍历当前系统在 lwip_cyclic_timers 循环超时事件数组中定义的每一个循环超时事件并启动 */
   for (i = (LWIP_TCP ? 1 : 0); i < LWIP_ARRAYSIZE(lwip_cyclic_timers); i++) {
     /* we have to cast via size_t to get rid of const warning
       (this is OK as cyclic_timer() casts back to const* */
@@ -316,6 +386,15 @@ sys_timeout(u32_t msecs, sys_timeout_handler handler, void *arg)
  * @param handler callback function that would be called by the timeout
  * @param arg callback argument that would be passed to handler
 */
+/*********************************************************************************************************
+** 函数名称: sys_untimeout
+** 功能描述: 从当前系统的 next_timeout 链表中移出指定的超时事件成员
+** 输	 入: handler - 需要移除的超时事件成员超时处理函数
+**         : arg - 需要移除的超时事件成员超时处理函数参数
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 sys_untimeout(sys_timeout_handler handler, void *arg)
 {
@@ -327,6 +406,8 @@ sys_untimeout(sys_timeout_handler handler, void *arg)
     return;
   }
 
+  /* 遍历当前系统 next_timeout 链表上的超时事件成员并查找函数参数指定的超时成员
+   * 如果找到则将其从中移除，并释放其占用的内存资源 */
   for (t = next_timeout, prev_t = NULL; t != NULL; prev_t = t, t = t->next) {
     if ((t->h == handler) && (t->arg == arg)) {
       /* We have a match */
@@ -351,6 +432,17 @@ sys_untimeout(sys_timeout_handler handler, void *arg)
  *
  * Must be called periodically from your main loop.
  */
+/*********************************************************************************************************
+** 函数名称: sys_check_timeouts
+** 功能描述: 从当前系统 next_timeout 的链表头位置开始遍历其成员，通过当前系统时间判断遍历的成员是否
+**         : 到达超时时间，如果达到超时时间则调用相应的超时处理函数并释放其资源，如果没到达超时时间
+**         : 则不做任何处理直接退出返回
+** 注     释: 这个函数“必须”在主循环函数中周期性的调用，来推动系统软件定时器的正常运行
+** 输	 入: 
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 sys_check_timeouts(void)
 {
@@ -368,11 +460,13 @@ sys_check_timeouts(void)
 
     PBUF_CHECK_FREE_OOSEQ();
 
+    /* 如果当前系统不存在超时事件，则不做任何处理直接返回 */
     tmptimeout = next_timeout;
     if (tmptimeout == NULL) {
       return;
     }
 
+    /* 如果当前系统时间还没到当前系统内最接近的超时事件，则不做任何处理直接返回*/
     if (TIME_LESS_THAN(now, tmptimeout->time)) {
       return;
     }
@@ -388,10 +482,13 @@ sys_check_timeouts(void)
                                  tmptimeout->handler_name, sys_now() - tmptimeout->time, arg));
     }
 #endif /* LWIP_DEBUG_TIMERNAMES */
+
+    /* 释放已经超时的超时事件占用的内存资源并调用超时事件的超时处理函数 */
     memp_free(MEMP_SYS_TIMEOUT, tmptimeout);
     if (handler != NULL) {
       handler(arg);
     }
+
     LWIP_TCPIP_THREAD_ALIVE();
 
     /* Repeat until all expired timers have been called */
@@ -403,6 +500,16 @@ sys_check_timeouts(void)
  * time (e.g. while saving energy) to prevent all timer functions of that
  * period being called.
  */
+/*********************************************************************************************************
+** 函数名称: sys_restart_timeouts
+** 功能描述: 把当前系统的 next_timeout 链表上的所有超时成员的超时时间都调整成以当前系统时间为基准
+**         : 的超时值，经过调整后，next_timeout 链表上的第一个超时成员超时时间等于当前系统时间，而
+**         : 其他超时成员则按照原来的超时间隔重新排列在 next_timeout 链表后
+** 输	 入: 
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 sys_restart_timeouts(void)
 {
@@ -425,6 +532,16 @@ sys_restart_timeouts(void)
 /** Return the time left before the next timeout is due. If no timeouts are
  * enqueued, returns 0xffffffff
  */
+/*********************************************************************************************************
+** 函数名称: sys_timeouts_sleeptime
+** 功能描述: 计算从当前系统时间点到系统内下一个超时事件需要流逝的时间
+** 输	 入: 
+** 输	 出: 0 - 表示已经超时
+**         : ret - 表示还需等待 ret 时间
+**         : SYS_TIMEOUTS_SLEEPTIME_INFINITE - 表示当前系统不存在超时事件
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 u32_t
 sys_timeouts_sleeptime(void)
 {

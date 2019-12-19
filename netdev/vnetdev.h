@@ -54,23 +54,25 @@
 struct vnetdev;
 
 /* virtual net device notify */
+/* 用来通知虚拟网卡读操作函数有可读数据包（signal post）*/
 typedef void (*vndnotify)(struct vnetdev *vnetdev);
 
 /* virtual net device buffer queue node */
+/* 用来组织虚拟网卡接收到的数据包 */
 struct vnd_q {
-  LW_LIST_RING ring;/* ring list */
+  LW_LIST_RING ring;    /* ring list */
   struct pbuf_custom p; /* packet */
 };
 
 /* virtual net device */
 struct vnetdev {
-  struct netdev netdev; /* net device */
-  int id; /* id number */
-  int type; /* network type */
+  struct netdev netdev;  /* net device */
+  int id;                /* id number */
+  int type;              /* network type */
   LW_LIST_RING_HEADER q; /* recv queue，把当前虚拟网卡接收到的数据包通过队列方式组织起来 */
-  size_t cur_size; /* current data size in buffer，表示当前在缓冲区中已经存在的待发送数据包字节数 */
-  size_t buf_size; /* buffer size，用来存储待发送的数据包 */
-  vndnotify notify; /* notify function */
+  size_t cur_size;       /* current data size in buffer，表示当前在缓冲区中已经存在的待发送数据包字节数 */
+  size_t buf_size;       /* buffer size，用来存储待发送的数据包 */
+  vndnotify notify;      /* notify function */
 };
 
 /* virtual net device functions */

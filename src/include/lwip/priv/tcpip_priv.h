@@ -110,6 +110,7 @@ struct tcpip_api_call_data
 typedef err_t (*tcpip_api_call_fn)(struct tcpip_api_call_data* call);
 err_t tcpip_api_call(tcpip_api_call_fn fn, struct tcpip_api_call_data *call);
 
+/* 表示 tcpip 线程可以处理的消息邮箱类型 */
 enum tcpip_msg_type {
 #if !LWIP_TCPIP_CORE_LOCKING
   TCPIP_MSG_API,
@@ -126,32 +127,42 @@ enum tcpip_msg_type {
   TCPIP_MSG_CALLBACK_STATIC
 };
 
+/* 表示 tcpip 线程处理的消息邮箱信息结构 */
 struct tcpip_msg {
   enum tcpip_msg_type type;
   union {
 #if !LWIP_TCPIP_CORE_LOCKING
+	/* 当消息类型是 TCPIP_MSG_API 时使用这个结构体 */
     struct {
       tcpip_callback_fn function;
       void* msg;
     } api_msg;
+
+	/* 当消息类型是 TCPIP_MSG_API_CALL 时使用这个结构体 */
     struct {
       tcpip_api_call_fn function;
       struct tcpip_api_call_data *arg;
       sys_sem_t *sem;
     } api_call;
+	
 #endif /* LWIP_TCPIP_CORE_LOCKING */
 #if !LWIP_TCPIP_CORE_LOCKING_INPUT
+	/* 当消息类型是 TCPIP_MSG_INPKT 时使用这个结构体 */
     struct {
       struct pbuf *p;
       struct netif *netif;
       netif_input_fn input_fn;
     } inp;
+	
 #endif /* !LWIP_TCPIP_CORE_LOCKING_INPUT */
+	/* 当消息类型是 TCPIP_MSG_CALLBACK/TCPIP_MSG_CALLBACK_STATIC 时使用这个结构体 */
     struct {
       tcpip_callback_fn function;
       void *ctx;
     } cb;
+	
 #if LWIP_TCPIP_TIMEOUT && LWIP_TIMERS
+	/* 当消息类型是 TCPIP_MSG_TIMEOUT/TCPIP_MSG_UNTIMEOUT 时使用这个结构体 */
     struct {
       u32_t msecs;
       sys_timeout_handler h;

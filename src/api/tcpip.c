@@ -56,8 +56,13 @@
 #define TCPIP_MSG_VAR_FREE(name)    API_VAR_FREE(MEMP_TCPIP_MSG_API, name)
 
 /* global variables */
+/* tcpip thread 线程的初始化函数指针 */
 static tcpip_init_done_fn tcpip_init_done;
+
+/* tcpip thread 线程的初始化函数参数指针 */
 static void *tcpip_init_done_arg;
+
+/* 表示 tcpip thread 使用的环形消息邮箱句柄 */
 static sys_mbox_t tcpip_mbox;
 
 #if LWIP_TCPIP_CORE_LOCKING
@@ -80,6 +85,14 @@ static void tcpip_thread_handle_msg(struct tcpip_msg *msg);
  * @param mbox the mbox to fetch the message from
  * @param msg the place to store the message
  */
+/*********************************************************************************************************
+** 函数名称: tcpip_timeouts_mbox_fetch
+** 功能描述: 从指定的环形消息邮箱中获取一个消息并存储到指定的缓冲区中
+** 输	 入: mbox - 用来获取消息的消息邮箱句柄
+** 输	 出: msg - 用来存储从消息有效获取到的消息
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void
 tcpip_timeouts_mbox_fetch(sys_mbox_t *mbox, void **msg)
 {
@@ -88,24 +101,35 @@ tcpip_timeouts_mbox_fetch(sys_mbox_t *mbox, void **msg)
 again:
   LWIP_ASSERT_CORE_LOCKED();
 
+  /* 计算从当前系统时间点到系统内下一个超时事件需要流逝的时间 */
   sleeptime = sys_timeouts_sleeptime();
+  
   if (sleeptime == SYS_TIMEOUTS_SLEEPTIME_INFINITE) {
-    UNLOCK_TCPIP_CORE();
+    UNLOCK_TCPIP_CORE();	
+    /* 尝试从指定的环形消息邮箱中获取一个消息并存储到指定的缓冲区中 */
     sys_arch_mbox_fetch(mbox, msg, 0);
     LOCK_TCPIP_CORE();
     return;
   } else if (sleeptime == 0) {
+  	/* 从当前系统 next_timeout 的链表头位置开始遍历其成员，通过当前系统时间判断遍历的成员是否
+     * 到达超时时间，如果达到超时时间则调用相应的超时处理函数并释放其资源，如果没到达超时时间
+     * 则不做任何处理直接退出返回 */
     sys_check_timeouts();
     /* We try again to fetch a message from the mbox. */
     goto again;
   }
 
   UNLOCK_TCPIP_CORE();
+  /* 尝试从指定的环形消息邮箱中获取一个消息并存储到指定的缓冲区中 */
   res = sys_arch_mbox_fetch(mbox, msg, sleeptime);
   LOCK_TCPIP_CORE();
+  
   if (res == SYS_ARCH_TIMEOUT) {
     /* If a SYS_ARCH_TIMEOUT value is returned, a timeout occurred
        before a message could be fetched. */
+    /* 从当前系统 next_timeout 的链表头位置开始遍历其成员，通过当前系统时间判断遍历的成员是否
+     * 到达超时时间，如果达到超时时间则调用相应的超时处理函数并释放其资源，如果没到达超时时间
+     * 则不做任何处理直接退出返回 */
     sys_check_timeouts();
     /* We try again to fetch a message from the mbox. */
     goto again;
@@ -123,6 +147,15 @@ again:
  *
  * @param arg unused argument
  */
+/*********************************************************************************************************
+** 函数名称: tcpip_thread
+** 功能描述: tcpip 线程函数，循环从 tcpip 线程的环形消息邮箱中获取消息并处理获取到的消息
+** 注     释: 主循环函数执行的时候，会先获取 tcpip core 锁
+** 输	 入: arg - 未使用
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void
 tcpip_thread(void *arg)
 {
@@ -132,19 +165,26 @@ tcpip_thread(void *arg)
   LWIP_MARK_TCPIP_THREAD();
 
   LOCK_TCPIP_CORE();
+
+  /* 如果当前系统指定了 tcpip thread 线程初始化函数，则执行初始化操作 */
   if (tcpip_init_done != NULL) {
     tcpip_init_done(tcpip_init_done_arg);
   }
 
   while (1) {                          /* MAIN Loop */
+
+    /* 表示当前线程正处于执行状态 */
     LWIP_TCPIP_THREAD_ALIVE();
+
     /* wait for a message, timeouts are processed while waiting */
+	/* 尝试从 tcpip thread 的环形消息邮箱中获取一个消息，并处理获取到的消息 */
     TCPIP_MBOX_FETCH(&tcpip_mbox, (void **)&msg);
     if (msg == NULL) {
       LWIP_DEBUGF(TCPIP_DEBUG, ("tcpip_thread: invalid message: NULL\n"));
       LWIP_ASSERT("tcpip_thread: invalid message", 0);
       continue;
     }
+	
     tcpip_thread_handle_msg(msg);
   }
 }
@@ -152,23 +192,35 @@ tcpip_thread(void *arg)
 /* Handle a single tcpip_msg
  * This is in its own function for access by tests only.
  */
+/*********************************************************************************************************
+** 函数名称: tcpip_thread_handle_msg
+** 功能描述: 处理一个指定的 tcpip 线程环形消息邮箱信息
+** 输	 入: msg - 需要处理的消息邮箱信息指针
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void
 tcpip_thread_handle_msg(struct tcpip_msg *msg)
 {
   switch (msg->type) {
 #if !LWIP_TCPIP_CORE_LOCKING
+
     case TCPIP_MSG_API:
       LWIP_DEBUGF(TCPIP_DEBUG, ("tcpip_thread: API message %p\n", (void *)msg));
       msg->msg.api_msg.function(msg->msg.api_msg.msg);
       break;
+	  
     case TCPIP_MSG_API_CALL:
       LWIP_DEBUGF(TCPIP_DEBUG, ("tcpip_thread: API CALL message %p\n", (void *)msg));
       msg->msg.api_call.arg->err = msg->msg.api_call.function(msg->msg.api_call.arg);
       sys_sem_signal(msg->msg.api_call.sem);
       break;
+	  
 #endif /* !LWIP_TCPIP_CORE_LOCKING */
 
 #if !LWIP_TCPIP_CORE_LOCKING_INPUT
+
     case TCPIP_MSG_INPKT:
       LWIP_DEBUGF(TCPIP_DEBUG, ("tcpip_thread: PACKET %p\n", (void *)msg));
       if (msg->msg.inp.input_fn(msg->msg.inp.p, msg->msg.inp.netif) != ERR_OK) {
@@ -176,19 +228,23 @@ tcpip_thread_handle_msg(struct tcpip_msg *msg)
       }
       memp_free(MEMP_TCPIP_MSG_INPKT, msg);
       break;
+	  
 #endif /* !LWIP_TCPIP_CORE_LOCKING_INPUT */
 
 #if LWIP_TCPIP_TIMEOUT && LWIP_TIMERS
+
     case TCPIP_MSG_TIMEOUT:
       LWIP_DEBUGF(TCPIP_DEBUG, ("tcpip_thread: TIMEOUT %p\n", (void *)msg));
       sys_timeout(msg->msg.tmo.msecs, msg->msg.tmo.h, msg->msg.tmo.arg);
       memp_free(MEMP_TCPIP_MSG_API, msg);
       break;
+	  
     case TCPIP_MSG_UNTIMEOUT:
       LWIP_DEBUGF(TCPIP_DEBUG, ("tcpip_thread: UNTIMEOUT %p\n", (void *)msg));
       sys_untimeout(msg->msg.tmo.h, msg->msg.tmo.arg);
       memp_free(MEMP_TCPIP_MSG_API, msg);
       break;
+	  
 #endif /* LWIP_TCPIP_TIMEOUT && LWIP_TIMERS */
 
     case TCPIP_MSG_CALLBACK:
@@ -211,15 +267,26 @@ tcpip_thread_handle_msg(struct tcpip_msg *msg)
 
 #ifdef TCPIP_THREAD_TEST
 /** Work on queued items in single-threaded test mode */
+/*********************************************************************************************************
+** 函数名称: tcpip_thread_poll_one
+** 功能描述: 尝试从 tcpip 线程的环形消息邮箱中获取一个消息并处理获取到的消息
+** 输	 入: 
+** 输	 出: 0 - 没有获取并处理消息
+**         : 1 - 成功获取并处理一个消息
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 int
 tcpip_thread_poll_one(void)
 {
   int ret = 0;
   struct tcpip_msg *msg;
 
+  /* 尝试从 tcpip 线程的环形消息邮箱中获取一个消息 */
   if (sys_arch_mbox_tryfetch(&tcpip_mbox, (void **)&msg) != SYS_ARCH_TIMEOUT) {
     LOCK_TCPIP_CORE();
     if (msg != NULL) {
+	  /* 处理获取到的消息邮箱信息 */
       tcpip_thread_handle_msg(msg);
       ret = 1;
     }
@@ -236,15 +303,29 @@ tcpip_thread_poll_one(void)
  * @param inp the network interface on which the packet was received
  * @param input_fn input function to call
  */
+/*********************************************************************************************************
+** 函数名称: tcpip_inpkt
+** 功能描述: 通过指定的函数指针处理从指定网络接口上获取到的数据包
+** 输	 入: p - 接收到的数据包指针
+**         : inp - 接收到数据包的网络接口指针
+**         : input_fn - 用来处理接收到的数据包的函数指针
+** 输	 出: ERR_OK - 成功处理接收到的数据包
+**         : ERR_MEM - 处理数据包失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 err_t
 tcpip_inpkt(struct pbuf *p, struct netif *inp, netif_input_fn input_fn)
 {
 #if LWIP_TCPIP_CORE_LOCKING_INPUT
   err_t ret;
+
   LWIP_DEBUGF(TCPIP_DEBUG, ("tcpip_inpkt: PACKET %p/%p\n", (void *)p, (void *)inp));
+  
   LOCK_TCPIP_CORE();
   ret = input_fn(p, inp);
   UNLOCK_TCPIP_CORE();
+  
   return ret;
 #else /* LWIP_TCPIP_CORE_LOCKING_INPUT */
   struct tcpip_msg *msg;
@@ -256,6 +337,7 @@ tcpip_inpkt(struct pbuf *p, struct netif *inp, netif_input_fn input_fn)
     return ERR_MEM;
   }
 
+  /* 根据函数参数构建一个消息邮箱信息并发送给 tcpip 线程 */
   msg->type = TCPIP_MSG_INPKT;
   msg->msg.inp.p = p;
   msg->msg.inp.netif = inp;
@@ -279,6 +361,16 @@ tcpip_inpkt(struct pbuf *p, struct netif *inp, netif_input_fn input_fn)
  *          NETIF_FLAG_ETHERNET flags)
  * @param inp the network interface on which the packet was received
  */
+/*********************************************************************************************************
+** 函数名称: tcpip_input
+** 功能描述: 处理从指定网络接口上获取到的数据包
+** 输	 入: p - 接收到的数据包指针
+**         : inp - 接收到数据包的网络接口指针
+** 输	 出: ERR_OK - 成功处理接收到的数据包
+**         : ERR_MEM - 处理数据包失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 err_t
 tcpip_input(struct pbuf *p, struct netif *inp)
 {
@@ -305,6 +397,16 @@ tcpip_input(struct pbuf *p, struct netif *inp)
  *
  * @see tcpip_try_callback
  */
+/*********************************************************************************************************
+** 函数名称: tcpip_callback
+** 功能描述: 根据函数指定参数构建一个 TCPIP_MSG_CALLBACK 类型消息邮箱并发送给 tcpip 线程
+** 输	 入: function - TCPIP_MSG_CALLBACK 类型消息的函数指针
+**         : ctx - TCPIP_MSG_CALLBACK 类型消息的 ctx 信息指针
+** 输	 出: ERR_OK - 成功构建并发送消息邮箱
+**         : ERR_MEM - 发送邮箱失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 err_t
 tcpip_callback(tcpip_callback_fn function, void *ctx)
 {
@@ -341,6 +443,16 @@ tcpip_callback(tcpip_callback_fn function, void *ctx)
  *
  * @see tcpip_callback
  */
+/*********************************************************************************************************
+** 函数名称: tcpip_try_callback
+** 功能描述: 尝试根据函数指定参数构建一个 TCPIP_MSG_CALLBACK 类型消息邮箱并发送给 tcpip 线程
+** 输	 入: function - TCPIP_MSG_CALLBACK 类型消息的函数指针
+**         : ctx - TCPIP_MSG_CALLBACK 类型消息的 ctx 信息指针
+** 输	 出: ERR_OK - 成功构建并发送消息邮箱
+**         : ERR_MEM - 发送邮箱失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 err_t
 tcpip_try_callback(tcpip_callback_fn function, void *ctx)
 {
@@ -373,6 +485,17 @@ tcpip_try_callback(tcpip_callback_fn function, void *ctx)
  * @param arg argument to pass to timeout function h
  * @return ERR_MEM on memory error, ERR_OK otherwise
  */
+/*********************************************************************************************************
+** 函数名称: tcpip_timeout
+** 功能描述: 根据函数指定参数构建一个 TCPIP_MSG_TIMEOUT 类型消息邮箱并发送给 tcpip 线程
+** 输	 入: msecs - TCPIP_MSG_TIMEOUT 类型消息的 msecs 值
+**         : h - TCPIP_MSG_TIMEOUT 类型消息的函数指针
+**         : arg - TCPIP_MSG_TIMEOUT 类型消息的函数参数
+** 输	 出: ERR_OK - 成功构建并发送消息邮箱
+**         : ERR_MEM - 发送邮箱失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 err_t
 tcpip_timeout(u32_t msecs, sys_timeout_handler h, void *arg)
 {
@@ -400,6 +523,16 @@ tcpip_timeout(u32_t msecs, sys_timeout_handler h, void *arg)
  * @param arg argument to pass to timeout function h
  * @return ERR_MEM on memory error, ERR_OK otherwise
  */
+/*********************************************************************************************************
+** 函数名称: tcpip_untimeout
+** 功能描述: 根据函数指定参数构建一个 TCPIP_MSG_UNTIMEOUT 类型消息邮箱并发送给 tcpip 线程
+** 输	 入: h - TCPIP_MSG_UNTIMEOUT 类型消息的函数指针
+**         : arg - TCPIP_MSG_UNTIMEOUT 类型消息的函数参数
+** 输	 出: ERR_OK - 成功构建并发送消息邮箱
+**         : ERR_MEM - 发送邮箱失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 err_t
 tcpip_untimeout(sys_timeout_handler h, void *arg)
 {
@@ -433,16 +566,30 @@ tcpip_untimeout(sys_timeout_handler h, void *arg)
  * @param sem semaphore to wait on
  * @return ERR_OK if the function was called, another err_t if not
  */
+/*********************************************************************************************************
+** 函数名称: tcpip_send_msg_wait_sem
+** 功能描述: 根据函数指定参数构建一个 TCPIP_MSG_API 类型消息邮箱并发送给 tcpip 线程并等待指定句柄的信号量
+** 输	 入: fn - TCPIP_MSG_UNTIMEOUT 类型消息的函数指针
+**         : apimsg - TCPIP_MSG_UNTIMEOUT 类型消息的函数参数
+**         : sem - 发送完消息邮箱需要等待的信号量句柄
+** 输	 出: ERR_OK - 成功构建并发送消息邮箱
+**         : ERR_MEM - 发送邮箱失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 err_t
 tcpip_send_msg_wait_sem(tcpip_callback_fn fn, void *apimsg, sys_sem_t *sem)
 {
 #if LWIP_TCPIP_CORE_LOCKING
+
   LWIP_UNUSED_ARG(sem);
   LOCK_TCPIP_CORE();
   fn(apimsg);
   UNLOCK_TCPIP_CORE();
   return ERR_OK;
+  
 #else /* LWIP_TCPIP_CORE_LOCKING */
+
   TCPIP_MSG_VAR_DECLARE(msg);
 
   LWIP_ASSERT("semaphore not initialized", sys_sem_valid(sem));
@@ -452,8 +599,11 @@ tcpip_send_msg_wait_sem(tcpip_callback_fn fn, void *apimsg, sys_sem_t *sem)
   TCPIP_MSG_VAR_REF(msg).type = TCPIP_MSG_API;
   TCPIP_MSG_VAR_REF(msg).msg.api_msg.function = fn;
   TCPIP_MSG_VAR_REF(msg).msg.api_msg.msg = apimsg;
+  
   sys_mbox_post(&tcpip_mbox, &TCPIP_MSG_VAR_REF(msg));
+  
   sys_arch_sem_wait(sem, 0);
+  
   TCPIP_MSG_VAR_FREE(msg);
   return ERR_OK;
 #endif /* LWIP_TCPIP_CORE_LOCKING */
@@ -473,12 +623,15 @@ err_t
 tcpip_api_call(tcpip_api_call_fn fn, struct tcpip_api_call_data *call)
 {
 #if LWIP_TCPIP_CORE_LOCKING
+
   err_t err;
   LOCK_TCPIP_CORE();
   err = fn(call);
   UNLOCK_TCPIP_CORE();
   return err;
+  
 #else /* LWIP_TCPIP_CORE_LOCKING */
+
   TCPIP_MSG_VAR_DECLARE(msg);
 
 #if !LWIP_NETCONN_SEM_PER_THREAD
@@ -494,13 +647,17 @@ tcpip_api_call(tcpip_api_call_fn fn, struct tcpip_api_call_data *call)
   TCPIP_MSG_VAR_REF(msg).type = TCPIP_MSG_API_CALL;
   TCPIP_MSG_VAR_REF(msg).msg.api_call.arg = call;
   TCPIP_MSG_VAR_REF(msg).msg.api_call.function = fn;
+  
 #if LWIP_NETCONN_SEM_PER_THREAD
   TCPIP_MSG_VAR_REF(msg).msg.api_call.sem = LWIP_NETCONN_THREAD_SEM_GET();
 #else /* LWIP_NETCONN_SEM_PER_THREAD */
   TCPIP_MSG_VAR_REF(msg).msg.api_call.sem = &call->sem;
 #endif /* LWIP_NETCONN_SEM_PER_THREAD */
+
   sys_mbox_post(&tcpip_mbox, &TCPIP_MSG_VAR_REF(msg));
+
   sys_arch_sem_wait(TCPIP_MSG_VAR_REF(msg).msg.api_call.sem, 0);
+  
   TCPIP_MSG_VAR_FREE(msg);
 
 #if !LWIP_NETCONN_SEM_PER_THREAD
@@ -598,6 +755,15 @@ tcpip_callbackmsg_trycallback_fromisr(struct tcpip_callback_msg *msg)
  * @param initfunc a function to call when tcpip_thread is running and finished initializing
  * @param arg argument to pass to initfunc
  */
+/*********************************************************************************************************
+** 函数名称: tcpip_init
+** 功能描述: 初始化当前系统的 tcpip 线程模块并创建 tcpip 线程
+** 输	 入: initfunc - tcpip 线程的初始化函数指针
+**         : arg - tcpip 线程的初始化函数参数指针
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 tcpip_init(tcpip_init_done_fn initfunc, void *arg)
 {
@@ -605,9 +771,11 @@ tcpip_init(tcpip_init_done_fn initfunc, void *arg)
 
   tcpip_init_done = initfunc;
   tcpip_init_done_arg = arg;
+  
   if (sys_mbox_new(&tcpip_mbox, TCPIP_MBOX_SIZE) != ERR_OK) {
     LWIP_ASSERT("failed to create tcpip_thread mbox", 0);
   }
+  
 #if LWIP_TCPIP_CORE_LOCKING
   if (sys_mutex_new(&lock_tcpip_core) != ERR_OK) {
     LWIP_ASSERT("failed to create lock_tcpip_core", 0);

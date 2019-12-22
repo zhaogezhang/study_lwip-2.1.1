@@ -70,6 +70,7 @@ static sys_mbox_t tcpip_mbox;
 sys_mutex_t lock_tcpip_core;
 #endif /* LWIP_TCPIP_CORE_LOCKING */
 
+/* 处理一个指定的 tcpip 线程环形消息邮箱信息 */
 static void tcpip_thread_handle_msg(struct tcpip_msg *msg);
 
 #if !LWIP_TIMERS
@@ -78,6 +79,7 @@ static void tcpip_thread_handle_msg(struct tcpip_msg *msg);
 #else /* !LWIP_TIMERS */
 /* wait for a message, timeouts are processed while waiting */
 #define TCPIP_MBOX_FETCH(mbox, msg) tcpip_timeouts_mbox_fetch(mbox, msg)
+
 /**
  * Wait (forever) for a message to arrive in an mbox.
  * While waiting, timeouts are processed.
@@ -173,7 +175,7 @@ tcpip_thread(void *arg)
 
   while (1) {                          /* MAIN Loop */
 
-    /* 表示当前线程正处于执行状态 */
+    /* 表示当前线程正处于执行状态，类似于看门狗喂狗功能 */
     LWIP_TCPIP_THREAD_ALIVE();
 
     /* wait for a message, timeouts are processed while waiting */
@@ -208,12 +210,16 @@ tcpip_thread_handle_msg(struct tcpip_msg *msg)
 
     case TCPIP_MSG_API:
       LWIP_DEBUGF(TCPIP_DEBUG, ("tcpip_thread: API message %p\n", (void *)msg));
+      /* 通过消息邮箱中指定的回调函数处理消息邮箱中指定的消息 */
       msg->msg.api_msg.function(msg->msg.api_msg.msg);
       break;
 	  
     case TCPIP_MSG_API_CALL:
       LWIP_DEBUGF(TCPIP_DEBUG, ("tcpip_thread: API CALL message %p\n", (void *)msg));
+	  /* 通过消息邮箱中指定的回调函数处理消息邮箱中指定的消息并把操作结果存储到这个消息邮箱的操作错误码中 */
       msg->msg.api_call.arg->err = msg->msg.api_call.function(msg->msg.api_call.arg);
+
+	  /* 通过消息邮箱中的信号量通知发送消息邮箱的线程消息已经处理完毕，并把处理结果存储在这个消息邮箱的操作错误码中 */
       sys_sem_signal(msg->msg.api_call.sem);
       break;
 	  
@@ -223,9 +229,13 @@ tcpip_thread_handle_msg(struct tcpip_msg *msg)
 
     case TCPIP_MSG_INPKT:
       LWIP_DEBUGF(TCPIP_DEBUG, ("tcpip_thread: PACKET %p\n", (void *)msg));
+	  /* 通过消息邮箱中指定的回调函数处理消息邮箱中指定的接受数据包，如果成功处理接受的数据包
+	   * 则释放数据包占用 pbuf 结构 */
       if (msg->msg.inp.input_fn(msg->msg.inp.p, msg->msg.inp.netif) != ERR_OK) {
         pbuf_free(msg->msg.inp.p);
       }
+
+	  /* 释放消息邮箱占用的内存空间资源 */
       memp_free(MEMP_TCPIP_MSG_INPKT, msg);
       break;
 	  
@@ -235,13 +245,21 @@ tcpip_thread_handle_msg(struct tcpip_msg *msg)
 
     case TCPIP_MSG_TIMEOUT:
       LWIP_DEBUGF(TCPIP_DEBUG, ("tcpip_thread: TIMEOUT %p\n", (void *)msg));
+
+	  /* 根据消息邮箱内容动态生成一个 sys_timeo 成员并以超时时间按照升序的方式链接到 next_timeout 链表中 */
       sys_timeout(msg->msg.tmo.msecs, msg->msg.tmo.h, msg->msg.tmo.arg);
+	  
+	  /* 释放消息邮箱占用的内存空间资源 */
       memp_free(MEMP_TCPIP_MSG_API, msg);
       break;
 	  
     case TCPIP_MSG_UNTIMEOUT:
       LWIP_DEBUGF(TCPIP_DEBUG, ("tcpip_thread: UNTIMEOUT %p\n", (void *)msg));
+
+	  /* 根据消息邮箱内容从当前系统的 next_timeout 链表中移出指定的超时事件成员 */
       sys_untimeout(msg->msg.tmo.h, msg->msg.tmo.arg);
+	  
+	  /* 释放消息邮箱占用的内存空间资源 */
       memp_free(MEMP_TCPIP_MSG_API, msg);
       break;
 	  
@@ -249,12 +267,18 @@ tcpip_thread_handle_msg(struct tcpip_msg *msg)
 
     case TCPIP_MSG_CALLBACK:
       LWIP_DEBUGF(TCPIP_DEBUG, ("tcpip_thread: CALLBACK %p\n", (void *)msg));
+
+	  /* 调用消息邮箱中指定的回调函数并以消息邮箱指定的参数作为函数参数 */
       msg->msg.cb.function(msg->msg.cb.ctx);
+
+	  /* 释放消息邮箱占用的内存空间资源 */
       memp_free(MEMP_TCPIP_MSG_API, msg);
       break;
 
     case TCPIP_MSG_CALLBACK_STATIC:
       LWIP_DEBUGF(TCPIP_DEBUG, ("tcpip_thread: CALLBACK_STATIC %p\n", (void *)msg));
+	
+	  /* 调用消息邮箱中指定的回调函数并以消息邮箱指定的参数作为函数参数 */
       msg->msg.cb.function(msg->msg.cb.ctx);
       break;
 

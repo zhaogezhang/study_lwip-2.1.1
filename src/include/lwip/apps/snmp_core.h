@@ -160,7 +160,7 @@ SNMP MIB node types
  all other nodes are assumed to be leaf nodes.
  This cannot be an enum because users may want to define their own node types.
 */
-/* 定义了当前系统内 snmp 协议中支持的节点类型 */
+/* 定义了当前系统内 snmp 协议中支持的节点类型，我们可以根据需要添加自定义节点类型 */
 #define SNMP_NODE_TREE         0x00
 /* predefined leaf node types */
 #define SNMP_NODE_SCALAR       0x01
@@ -179,6 +179,7 @@ struct snmp_node
 };
 
 /** SNMP node instance access types */
+/* 表示 snmp 树形结构中的叶子节点实例的数据访问权限类型 */
 typedef enum {
   SNMP_NODE_INSTANCE_ACCESS_READ    = 1,
   SNMP_NODE_INSTANCE_ACCESS_WRITE   = 2,
@@ -198,11 +199,16 @@ typedef void (*node_instance_release_method)(struct snmp_node_instance*);
 #define SNMP_GET_VALUE_RAW_DATA 0x4000  /* do not use 0x8000 because return value of node_instance_get_value_method is signed16 and 0x8000 would be the signed bit */
 
 /** SNMP node instance */
+/* 表示 snmp 树形结构中的叶子节点实例 */
 struct snmp_node_instance
 {
   /** prefilled with the node, get_instance() is called on; may be changed by user to any value to pass an arbitrary node between calls to get_instance() and get_value/test_value/set_value */
+  /* 在调用 get_instance 方法前可以被设置成任何类型数据结构指针用来传递节点数据参数 */
   const struct snmp_node* node;
+  
   /** prefilled with the instance id requested; for get_instance() this is the exact oid requested; for get_next_instance() this is the relative starting point, stack expects relative oid of next node here */
+  /* 在调用 get_instance 方法前可以被设置成 exact oid 用来传递 exact oid 参数 
+     在调用 get_next_instance 方法前可以被设置成 starting base oid 用来传递 starting base oid 参数 */
   struct snmp_obj_id instance_oid;
 
   /** ASN type for this object (see snmp_asn1.h for definitions) */
@@ -220,8 +226,11 @@ struct snmp_node_instance
   node_instance_release_method release_instance;
 
   /** reference to pass arbitrary value between calls to get_instance() and get_value/test_value/set_value */
+  /* 在调用 get_instance 函数后和调用 get_value/test_value/set_value 函数前用来传递需要的参数 */
   union snmp_variant_value reference;
+  
   /** see reference (if reference is a pointer, the length of underlying data may be stored here or anything else) */
+  /* 如果当前实例的 reference 成员表示的时一个指针参数，则当前字段表示这个指针参数中携带的有效数据字节数 */
   u32_t reference_len;
 };
 
@@ -247,6 +256,7 @@ struct snmp_tree_node
   0, NULL }
 
 /** SNMP leaf node */
+/* snmp 树形结构中用来表示叶子节点的数据结构 */
 struct snmp_leaf_node
 {
   /** inherited "base class" members */

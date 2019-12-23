@@ -48,6 +48,7 @@ extern "C" {
 #if LWIP_SNMP /* don't build if not configured for use in lwipopts.h */
 
 /** basic scalar node */
+/* snmp 中表示标量节点的数据结构，所有的标量实例都有一个唯一且确定的 oid .0 */
 struct snmp_scalar_node
 {
   /** inherited "base class" members */
@@ -72,6 +73,7 @@ snmp_err_t snmp_scalar_get_next_instance(const u32_t *root_oid, u8_t root_oid_le
 #define SNMP_SCALAR_CREATE_NODE_READONLY(oid, asn1_type, get_value_method) SNMP_SCALAR_CREATE_NODE(oid, SNMP_NODE_INSTANCE_READ_ONLY, asn1_type, get_value_method, NULL, NULL)
 
 /** scalar array node - a tree node which contains scalars only as children */
+/* 定义了标量数组节点下的子节点的属性信息 */
 struct snmp_scalar_array_node_def
 {
   u32_t         oid;
@@ -84,12 +86,18 @@ typedef snmp_err_t (*snmp_scalar_array_set_test_method)(const struct snmp_scalar
 typedef snmp_err_t (*snmp_scalar_array_set_value_method)(const struct snmp_scalar_array_node_def*, u16_t, void*);
 
 /** basic scalar array node */
+/* snmp 中表示标量数组节点的数据结构，标量数组节点是一个所有子节点都是标量节点的树节点 */
 struct snmp_scalar_array_node
 {
   /** inherited "base class" members */
   struct snmp_leaf_node node;
+
+  /* 表示当前标量数组节点下包含的标量节点个数 */
   u16_t array_node_count;
+
+  /* 表示当前标量数组节点下的每一个子节点的属性信息 */
   const struct snmp_scalar_array_node_def* array_nodes;
+  
   snmp_scalar_array_get_value_method get_value;
   snmp_scalar_array_set_test_method set_test;
   snmp_scalar_array_set_value_method set_value;

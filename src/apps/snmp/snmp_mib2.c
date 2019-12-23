@@ -87,6 +87,7 @@ extern const struct snmp_scalar_array_node snmp_mib2_system_node;
 extern const struct snmp_tree_node snmp_mib2_at_root;
 extern const struct snmp_tree_node snmp_mib2_ip_root;
 
+/* 表示在 snmp 树形结构中，MIB2 节点下包含的子节点指针列表 */
 static const struct snmp_node *const mib2_nodes[] = {
   &snmp_mib2_system_node.node.node,
   &snmp_mib2_interface_root.node,
@@ -108,9 +109,13 @@ static const struct snmp_node *const mib2_nodes[] = {
   &snmp_mib2_snmp_root.node.node
 };
 
+/* 根据指定参数初始化并创建一个 snmp 树形结构中的 mib2 子树节点 */
 static const struct snmp_tree_node mib2_root = SNMP_CREATE_TREE_NODE(1, mib2_nodes);
 
+/* 表示在 snmp 树形结构中 mib2 节点的 base oid 的值 */
 static const u32_t  mib2_base_oid_arr[] = { 1, 3, 6, 1, 2, 1 };
+
+/* 根据指定参数初始化并创建一个 snmp 树形结构中的 mib2 节点，这个节点被挂在了 snmp 树上 */
 const struct snmp_mib mib2 = SNMP_MIB_CREATE(mib2_base_oid_arr, &mib2_root.node);
 
 #endif /* LWIP_SNMP && SNMP_LWIP_MIB2 */

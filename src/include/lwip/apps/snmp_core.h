@@ -125,16 +125,18 @@ outdated v1 error codes. do not use anmore!
 } snmp_err_t;
 
 /** internal object identifier representation */
+/* snmp 中用来表示 OID 变量的数据结构 */
 struct snmp_obj_id
 {
-  u8_t len;
-  u32_t id[SNMP_MAX_OBJ_ID_LEN];
+  u8_t len;                      /* 表示 OID 变量中有效数据字节数 */
+  u32_t id[SNMP_MAX_OBJ_ID_LEN]; /* 表示 OID 变量实际数据 */
 };
 
+/* snmp 中用来表示常量引用的 OID 变量的数据结构 */
 struct snmp_obj_id_const_ref
 {
-  u8_t len;
-  const u32_t* id;
+  u8_t len;        /* 表示当前 OID 结构体的 id 字段中有效数据字节数 */
+  const u32_t* id; /* 表示当前 OID 结构体变量实际数据 */
 };
 
 extern const struct snmp_obj_id_const_ref snmp_zero_dot_zero; /* administrative identifier from SNMPv2-SMI */
@@ -158,6 +160,7 @@ SNMP MIB node types
  all other nodes are assumed to be leaf nodes.
  This cannot be an enum because users may want to define their own node types.
 */
+/* 定义了当前系统内 snmp 协议中支持的节点类型 */
 #define SNMP_NODE_TREE         0x00
 /* predefined leaf node types */
 #define SNMP_NODE_SCALAR       0x01
@@ -166,6 +169,7 @@ SNMP MIB node types
 #define SNMP_NODE_THREADSYNC   0x04
 
 /** node "base class" layout, the mandatory fields for a node  */
+/* 表示 snmp 树形结构中的一个节点成员基本信息 */
 struct snmp_node
 {
   /** one out of SNMP_NODE_TREE or any leaf node type (like SNMP_NODE_SCALAR) */
@@ -223,18 +227,21 @@ struct snmp_node_instance
 
 
 /** SNMP tree node */
+/* 表示 snmp 树形结构中的一个树形节点，包含了当前节点以及当前节点的子节点信息 */
 struct snmp_tree_node
 {
   /** inherited "base class" members */
-  struct snmp_node node;
-  u16_t subnode_count;
-  const struct snmp_node* const *subnodes;
+  struct snmp_node node;                   /* 表示当前节点类型和 OID 值 */
+  u16_t subnode_count;                     /* 表示当前节点下包含的子节点个数 */
+  const struct snmp_node* const *subnodes; /* 表示当前节点下包含的子节点数组指针 */
 };
 
+/* 根据指定的参数创建一个 snmp 树形结构中“包含”子节点的树节点 */
 #define SNMP_CREATE_TREE_NODE(oid, subnodes) \
   {{ SNMP_NODE_TREE, (oid) }, \
   (u16_t)LWIP_ARRAYSIZE(subnodes), (subnodes) }
 
+/* 根据指定的参数创建一个 snmp 树形结构中“不包含”子节点的树节点 */
 #define SNMP_CREATE_EMPTY_TREE_NODE(oid) \
   {{ SNMP_NODE_TREE, (oid) }, \
   0, NULL }
@@ -249,11 +256,12 @@ struct snmp_leaf_node
 };
 
 /** represents a single mib with its base oid and root node */
+/* 表示 snmp 树形结构中的 mib 节点 */
 struct snmp_mib
 {
-  const u32_t *base_oid;
-  u8_t base_oid_len;
-  const struct snmp_node *root_node;
+  const u32_t *base_oid;              /* 当前 mib 节点的 base OID 值 */
+  u8_t base_oid_len;                  /* 当前 mib 节点的 base OID 值的“字”长度 */
+  const struct snmp_node *root_node;  /* 当前 mib 节点下的根节点指针 */
 };
 
 #define SNMP_MIB_CREATE(oid_list, root_node) { (oid_list), (u8_t)LWIP_ARRAYSIZE(oid_list), root_node }
@@ -269,9 +277,9 @@ struct snmp_oid_range
 u8_t snmp_oid_in_range(const u32_t *oid_in, u8_t oid_len, const struct snmp_oid_range *oid_ranges, u8_t oid_ranges_len);
 
 typedef enum {
-  SNMP_NEXT_OID_STATUS_SUCCESS,
+  SNMP_NEXT_OID_STATUS_SUCCESS,     /* 表示在 snmp_next_oid_check 中指定的 snmp oid 在之前的 next oid state 表示范围之内 */
   SNMP_NEXT_OID_STATUS_NO_MATCH,
-  SNMP_NEXT_OID_STATUS_BUF_TO_SMALL
+  SNMP_NEXT_OID_STATUS_BUF_TO_SMALL /* 表示指定的 snmp oid 数据长度超过了指定的 next oid state 的 next_oid_max_len 字段值 */
 } snmp_next_oid_status_t;
 
 /** state for next_oid_init / next_oid_check functions */

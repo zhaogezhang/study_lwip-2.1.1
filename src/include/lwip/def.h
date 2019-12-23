@@ -66,6 +66,7 @@ extern "C" {
 #define LWIP_MIN(x , y)  (((x) < (y)) ? (x) : (y))
 
 /* Get the number of entries in an array ('x' must NOT be a pointer!) */
+/* 计算指定数组中包含的数组成员个数， */
 #define LWIP_ARRAYSIZE(x) (sizeof(x)/sizeof((x)[0]))
 
 /** Create u32_t value from bytes */

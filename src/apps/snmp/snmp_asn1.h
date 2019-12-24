@@ -71,12 +71,21 @@ extern "C" {
 #define SNMP_ASN1_CONTEXT_VARBIND_NO_SUCH_OBJECT      0
 #define SNMP_ASN1_CONTEXT_VARBIND_END_OF_MIB_VIEW     2
 
+/* TLV - Type-length-value */
 struct snmp_asn1_tlv {
+  /* 表示当前 tlv 结构中的 type 字段值 */
   u8_t  type;       /* only U8 because extended types are not specified by SNMP */
+
+  /* 表示当前 tlv 结构中 type 字段占用的字节数，这个值通常为 1 */
   u8_t  type_len;   /* encoded length of 'type' field (normally 1) */
+
+  /* 表示当前 tlv 结构中 length 字段最少需要的字节数 */
   u8_t  length_len; /* indicates how many bytes are required to encode the 'value_len' field */
+
+  /* 表示当前 tlv 结构中存储的 value 数据字节数 */
   u16_t value_len;  /* encoded length of the value */
 };
+
 #define SNMP_ASN1_TLV_HDR_LENGTH(tlv) ((tlv).type_len + (tlv).length_len)
 #define SNMP_ASN1_TLV_LENGTH(tlv) ((tlv).type_len + (tlv).length_len + (tlv).value_len)
 #define SNMP_ASN1_SET_TLV_PARAMS(tlv, type_, length_len_, value_len_) do { (tlv).type = (type_); (tlv).type_len = 0; (tlv).length_len = (length_len_); (tlv).value_len = (value_len_); } while (0);

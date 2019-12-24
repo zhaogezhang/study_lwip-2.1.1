@@ -106,6 +106,7 @@ struct snmp_scalar_array_node
 snmp_err_t snmp_scalar_array_get_instance(const u32_t *root_oid, u8_t root_oid_len, struct snmp_node_instance* instance);
 snmp_err_t snmp_scalar_array_get_next_instance(const u32_t *root_oid, u8_t root_oid_len, struct snmp_node_instance* instance);
 
+/* 通过指定的参数初始化一个 snmp 标量数组实例数据结构 */
 #define SNMP_SCALAR_CREATE_ARRAY_NODE(oid, array_nodes, get_value_method, set_test_method, set_value_method) \
   {{{ SNMP_NODE_SCALAR_ARRAY, (oid) }, \
     snmp_scalar_array_get_instance, \

@@ -49,10 +49,11 @@
 extern "C" {
 #endif
 
+/* 表示 snmp 协议使用的数据缓冲流数据结构 */
 struct snmp_pbuf_stream {
-  struct pbuf *pbuf;
-  u16_t offset;
-  u16_t length;
+  struct pbuf *pbuf; /* 用来存储当前 snmp 数据的 pbuf 结构指针 */
+  u16_t offset;      /* 表示当前 snmp 数据缓冲流中有效数据在 pbuf 缓冲结构中的起始索引值 */
+  u16_t length;      /* 表示当前 snmp 数据缓冲流中有效数据字节数 */
 };
 
 err_t snmp_pbuf_stream_init(struct snmp_pbuf_stream *pbuf_stream, struct pbuf *p, u16_t offset, u16_t length);

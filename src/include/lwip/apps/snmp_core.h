@@ -128,7 +128,7 @@ outdated v1 error codes. do not use anmore!
 /* snmp 中用来表示 OID 变量的数据结构 */
 struct snmp_obj_id
 {
-  u8_t len;                      /* 表示 OID 变量中有效数据字节数 */
+  u8_t len;                      /* 表示 OID 变量中有效数据字长度 */
   u32_t id[SNMP_MAX_OBJ_ID_LEN]; /* 表示 OID 变量实际数据 */
 };
 

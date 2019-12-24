@@ -661,7 +661,7 @@ snmp_oid_to_ip_port(const u32_t *oid, u8_t oid_len, ip_addr_t *ip, u16_t *port)
 ** 功能描述: 根据函数指定参数初始化指定的 snmp oid 对象 
 ** 输	 入: target - 需要初始化的 snmp oid 对象指针
 **         : oid - 想要设置的 snmp oid
-**         : oid_len - 想要设置的 snmp oid 字节长度
+**         : oid_len - 想要设置的 snmp oid 字长度
 ** 输	 出: 
 ** 全局变量: 
 ** 调用模块: 

@@ -48,22 +48,30 @@ extern "C" {
 #if LWIP_SNMP /* don't build if not configured for use in lwipopts.h */
 
 /** default (customizable) read/write table */
+/* 表示 snmp 协议中表格实例列属性信息 */
 struct snmp_table_col_def
 {
-  u32_t index;
+  u32_t index;          /* 表示当前表格实例列索引值 */
   u8_t asn1_type;
   snmp_access_t access;
 };
 
 /** table node */
+/* 表示 snmp 协议表格实例数据结构 */
 struct snmp_table_node
 {
   /** inherited "base class" members */
   struct snmp_leaf_node node;
+
+  /* 表示当前 snmp 表格实例中包含的列数 */
   u16_t column_count;
+
+  /* 表示当前 snmp 表格实例中每一列数据属性信息 */
   const struct snmp_table_col_def* columns;
+
   snmp_err_t (*get_cell_instance)(const u32_t* column, const u32_t* row_oid, u8_t row_oid_len, struct snmp_node_instance* cell_instance);
   snmp_err_t (*get_next_cell_instance)(const u32_t* column, struct snmp_obj_id* row_oid, struct snmp_node_instance* cell_instance);
+
   /** returns object value for the given object identifier */
   node_instance_get_value_method get_value;
   /** tests length and/or range BEFORE setting */
@@ -87,6 +95,7 @@ snmp_err_t snmp_table_get_next_instance(const u32_t *root_oid, u8_t root_oid_len
 
 
 /** simple read-only table */
+/* 表示 snmp 协议简单表格实例的数据类型 */
 typedef enum {
   SNMP_VARIANT_VALUE_TYPE_U32,
   SNMP_VARIANT_VALUE_TYPE_S32,
@@ -94,6 +103,7 @@ typedef enum {
   SNMP_VARIANT_VALUE_TYPE_CONST_PTR
 } snmp_table_column_data_type_t;
 
+/* 表示 snmp 协议简单表格实例的属性信息 */
 struct snmp_table_simple_col_def
 {
   u32_t index;
@@ -102,12 +112,18 @@ struct snmp_table_simple_col_def
 };
 
 /** simple read-only table node */
+/* 表示 snmp 协议简单表格实例数据结构 */
 struct snmp_table_simple_node
 {
   /* inherited "base class" members */
   struct snmp_leaf_node node;
+  
+  /* 表示当前 snmp 简单表格实例中包含的列数 */
   u16_t column_count;
+  
+  /* 表示当前 snmp 简单表格实例中每一列数据属性信息 */
   const struct snmp_table_simple_col_def* columns;
+  
   snmp_err_t (*get_cell_value)(const u32_t* column, const u32_t* row_oid, u8_t row_oid_len, union snmp_variant_value* value, u32_t* value_len);
   snmp_err_t (*get_next_cell_instance_and_value)(const u32_t* column, struct snmp_obj_id* row_oid, union snmp_variant_value* value, u32_t* value_len);
 };

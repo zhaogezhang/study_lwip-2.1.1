@@ -345,6 +345,7 @@ err_t ip_input(struct pbuf *p, struct netif *inp);
         ip4_output_if(p, src, LWIP_IP_HDRINCL, 0, 0, 0, netif)
 #define ip_route(src, dest) \
         ip4_route_src(src, dest)
+/* 获取指定网口的 IPv4 地址 */
 #define ip_netif_get_local_ip(netif, dest) \
         ip4_netif_get_local_ip(netif)
 #define ip_debug_print(is_ipv6, p) ip4_debug_print(p)
@@ -373,6 +374,9 @@ err_t ip_input(struct pbuf *p, struct netif *inp);
 
 #endif /* LWIP_IPV6 */
 
+/* 1. 尝试使用我们自己实现的基于“源” IP 地址的路由策略找到一个发送指定数据包的网络接口，如果
+      基于“源” IP 地址的路由策略没找到有效的网络接口，则使用默认基于“目的” IP 地址的路由策略
+   2. 获取指定网口的 IPv4 地址 */
 #define ip_route_get_local_ip(src, dest, netif, ipaddr) do { \
   (netif) = ip_route(src, dest); \
   (ipaddr) = ip_netif_get_local_ip(netif, dest); \

@@ -58,6 +58,16 @@
 #if SNMP_USE_NETCONN
 #include "lwip/tcpip.h"
 #include "lwip/priv/tcpip_priv.h"
+
+/*********************************************************************************************************
+** 函数名称: snmp_mib2_lwip_synchronizer
+** 功能描述: 调用指定的函数指针
+** 输	 入: fn - 需要调用的函数指针
+**         : arg - 调用函数时传递的函数参数
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 snmp_mib2_lwip_synchronizer(snmp_threadsync_called_fn fn, void *arg)
 {
@@ -66,6 +76,7 @@ snmp_mib2_lwip_synchronizer(snmp_threadsync_called_fn fn, void *arg)
   fn(arg);
   UNLOCK_TCPIP_CORE();
 #else
+  /* 根据函数指定参数构建一个 TCPIP_MSG_CALLBACK 类型消息邮箱并发送给 tcpip 线程 */
   tcpip_callback(fn, arg);
 #endif
 }

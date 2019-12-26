@@ -62,6 +62,7 @@ snmp_netconn_thread(void *arg)
   LWIP_UNUSED_ARG(arg);
 
   /* Bind to SNMP port with default IP address */
+  /* 创建一个新的 udp 连接并绑定到 ADDR_ANY 地址的 LWIP_IANA_PORT_SNMP 端口上 */
 #if LWIP_IPV6
   conn = netconn_new(NETCONN_UDP_IPV6);
   netconn_bind(conn, IP6_ADDR_ANY, LWIP_IANA_PORT_SNMP);
@@ -74,6 +75,7 @@ snmp_netconn_thread(void *arg)
   /* 记录当前 snmp 协议模块使用的 udp 协议控制块指针 */
   snmp_traps_handle = conn;
 
+  /* 处理从 snmp 端口上接收到的 snmp 数据包 */
   do {
     err = netconn_recv(conn, &buf);
 

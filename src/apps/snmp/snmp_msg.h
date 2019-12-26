@@ -62,14 +62,17 @@ extern "C" {
 #define SNMP_VERSION_2c 1
 #define SNMP_VERSION_3  3
 
+/* 表示当前系统内的 snmp variable bind 数据结构，表示的是 snmp 数据包中指定的
+   snmp 对象列表信息，即当前 snmp 数据包都需要操作哪些对象 */
 struct snmp_varbind_enumerator {
   struct snmp_pbuf_stream pbuf_stream;
   u16_t varbind_count;
 };
 
+/* 当前系统对 snmp variable bind 操作错误码定义 */
 typedef enum {
   SNMP_VB_ENUMERATOR_ERR_OK            = 0,
-  SNMP_VB_ENUMERATOR_ERR_EOVB          = 1,
+  SNMP_VB_ENUMERATOR_ERR_EOVB          = 1,  /* 表示读取到 vb_enumerator 缓存数据流的末尾 */
   SNMP_VB_ENUMERATOR_ERR_ASN1ERROR     = 2,
   SNMP_VB_ENUMERATOR_ERR_INVALIDLENGTH = 3
 } snmp_vb_enumerator_err_t;
@@ -77,6 +80,7 @@ typedef enum {
 void snmp_vb_enumerator_init(struct snmp_varbind_enumerator *enumerator, struct pbuf *p, u16_t offset, u16_t length);
 snmp_vb_enumerator_err_t snmp_vb_enumerator_get_next(struct snmp_varbind_enumerator *enumerator, struct snmp_varbind *varbind);
 
+/* 当我们接收到一个 snmp 请求数据包的时候会对其解析，然后把解析到的数据存储到这个数据结构中 */
 struct snmp_request {
   /* Communication handle */
   void *handle;
@@ -84,23 +88,33 @@ struct snmp_request {
   const ip_addr_t *source_ip;
   /* source UDP port */
   u16_t source_port;
+  
   /* incoming snmp version */
   u8_t version;
+  
   /* community name (zero terminated) */
   u8_t community[SNMP_MAX_COMMUNITY_STR_LEN + 1];
   /* community string length (exclusive zero term) */
   u16_t community_strlen;
+  
   /* request type */
   u8_t request_type;
   /* request ID */
   s32_t request_id;
-  /* error status */
+
+  /* error status */  
   s32_t error_status;
   /* error index */
   s32_t error_index;
+  
   /* non-repeaters (getBulkRequest (SNMPv2c)) */
+  /* Nonrepeaters tells the get-bulk command that the first N objects 
+     can be retrieved with a simple get-next operation. */
   s32_t non_repeaters;
+  
   /* max-repetitions (getBulkRequest (SNMPv2c)) */
+  /* Max-repetitions tells the get-bulk command to attempt up to Mget-next operations 
+     to retrieve the remaining objects. */
   s32_t max_repetitions;
 
   /* Usually response-pdu (2). When snmpv3 errors are detected report-pdu(8) */
@@ -127,18 +141,51 @@ struct snmp_request {
   u8_t  context_name_len;
 #endif
 
+  /* 指向当前接收到的 snmp 请求数据包的 pbuf 结构指针 */
   struct pbuf *inbound_pbuf;
+
+  /* 表示的是 snmp 数据包中指定的 snmp 对象列表信息，即当前 snmp 数据包都需要操作哪些对象 */
   struct snmp_varbind_enumerator inbound_varbind_enumerator;
+
+  /* 表示当前接收到的 snmp 请求数据包中存储的 varbind 数据在 inbound_pbuf 缓冲区中的偏移量 */
   u16_t inbound_varbind_offset;
+  
+  /* 表示当前接收到的 snmp 请求数据包的有效数据在 inbound_pbuf 缓冲区中的长度 */
   u16_t inbound_varbind_len;
+  
+  /* 表示当前接收到的 snmp 请求数据包在 inbound_pbuf 缓冲区后添加的 pad 数据的长度 */
   u16_t inbound_padding_len;
 
+  /* 指向当前需要发送的 snmp 数据包的 pbuf 结构指针 */
   struct pbuf *outbound_pbuf;
+
+  /* 表示当前 snmp 请求数据包的发送数据缓冲流数据结构 */
   struct snmp_pbuf_stream outbound_pbuf_stream;
+
+  /* 表示需要发送的 snmp 数据包的 PDU 数据在 outbound_pbuf 缓冲区中的偏移量
+     注释：因为在 snmp_prepare_outbound_frame 数据封装函数中对某些数据封装时只写入 tlv 结构
+           中的 tl 字段，但是还没有写入 v 字段值，所以需要记录下 v 字段在 snmp 数据包缓存流
+           中的偏移量，这样后面需要写入 v 字段值的时候就可以直接写入到目的地址处了 */
   u16_t outbound_pdu_offset;
+  
+  /* 表示需要发送的 snmp 数据包的 error status 数据在 outbound_pbuf 缓冲区中的偏移量
+     注释：因为在 snmp_prepare_outbound_frame 数据封装函数中对某些数据封装时只写入 tlv 结构
+           中的 tl 字段，但是还没有写入 v 字段值，所以需要记录下 v 字段在 snmp 数据包缓存流
+           中的偏移量，这样后面需要写入 v 字段值的时候就可以直接写入到目的地址处了 */
   u16_t outbound_error_status_offset;
+
+  /* 表示需要发送的 snmp 数据包的 error index 数据在 outbound_pbuf 缓冲区中的偏移量
+     注释：因为在 snmp_prepare_outbound_frame 数据封装函数中对某些数据封装时只写入 tlv 结构
+           中的 tl 字段，但是还没有写入 v 字段值，所以需要记录下 v 字段在 snmp 数据包缓存流
+           中的偏移量，这样后面需要写入 v 字段值的时候就可以直接写入到目的地址处了 */
   u16_t outbound_error_index_offset;
+  
+  /* 表示需要发送的 snmp 数据包的 varbind 数据在 outbound_pbuf 缓冲区中的偏移量
+     注释：因为在 snmp_prepare_outbound_frame 数据封装函数中对某些数据封装时只写入 tlv 结构
+           中的 tl 字段，但是还没有写入 v 字段值，所以需要记录下 v 字段在 snmp 数据包缓存流
+           中的偏移量，这样后面需要写入 v 字段值的时候就可以直接写入到目的地址处了 */
   u16_t outbound_varbind_offset;
+  
 #if LWIP_SNMP_V3
   u16_t outbound_msg_global_data_offset;
   u16_t outbound_msg_global_data_end;
@@ -155,12 +202,12 @@ struct snmp_request {
 
 /** A helper struct keeping length information about varbinds */
 struct snmp_varbind_len {
-  u8_t  vb_len_len;
-  u16_t vb_value_len;
-  u8_t  oid_len_len;
-  u16_t oid_value_len;
-  u8_t  value_len_len;
-  u16_t value_value_len;
+  u8_t  vb_len_len;      /* 表示当前 varbind 结构的 vb_value_len 字段需要占用的字节数 */
+  u16_t vb_value_len;    /* 表示当前 varbind 结构需要占用的字节数 */
+  u8_t  oid_len_len;     /* 表示指定 varbind 结构的 oid.len 字段占用的字节数 */
+  u16_t oid_value_len;   /* 表示指定 varbind 结构的 oid.id 字段占用的字节数 */
+  u8_t  value_len_len;   /* 表示指定 varbind 结构的 value_len 字段占用的字节数 */
+  u16_t value_value_len; /* 表示指定 varbind 结构的 value 字段占用的字节数 */
 };
 
 /** Agent community string */

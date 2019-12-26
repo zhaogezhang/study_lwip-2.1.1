@@ -59,6 +59,7 @@ struct snmp_varbind
   struct snmp_varbind *prev;
 
   /** object identifier */
+  /* 表示当前 snmp 属性结构中叶子节点对象的 oid 数据 */
   struct snmp_obj_id oid;
 
   /** value ASN1 type */

@@ -71,15 +71,26 @@ const char *snmp_community_write = SNMP_COMMUNITY_WRITE;
 /** SNMP community string for sending traps */
 const char *snmp_community_trap = SNMP_COMMUNITY_TRAP;
 
+/* 当前协议栈的写回调函数指针和写回调函数参数 */
 snmp_write_callback_fct snmp_write_callback     = NULL;
 void                   *snmp_write_callback_arg = NULL;
 
 #if LWIP_SNMP_CONFIGURE_VERSIONS
 
+/* 表示当前协议栈指定版本的 snmp 使能情况 */
 static u8_t v1_enabled = 1;
 static u8_t v2c_enabled = 1;
 static u8_t v3_enabled = 1;
 
+/*********************************************************************************************************
+** 函数名称: snmp_version_enabled
+** 功能描述: 获取当前协议栈指定 snmp 版本的使能情况
+** 输	 入: version - 想要获取的 snmp 版本
+** 输	 出: 1 - 当前协议栈“使能”了指定版本的 snmp 功能
+**         : 0 - 当前协议栈“没使能”了指定版本的 snmp 功能
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static u8_t
 snmp_version_enabled(u8_t version)
 {
@@ -99,24 +110,60 @@ snmp_version_enabled(u8_t version)
   }
 }
 
+/*********************************************************************************************************
+** 函数名称: snmp_v1_enabled
+** 功能描述: 判断当前协议栈 snmpv1 功能是否使能
+** 输	 入: 
+** 输	 出: 1 - 当前协议栈“使能”了 snmpv1 功能
+**         : 0 - 当前协议栈“没使能” snmpv1 功能
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 u8_t
 snmp_v1_enabled(void)
 {
   return snmp_version_enabled(SNMP_VERSION_1);
 }
 
+/*********************************************************************************************************
+** 函数名称: snmp_v2c_enabled
+** 功能描述: 判断当前协议栈 snmpv2 功能是否使能
+** 输	 入: 
+** 输	 出: 1 - 当前协议栈“使能”了 snmpv2 功能
+**         : 0 - 当前协议栈“没使能” snmpv2 功能
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 u8_t
 snmp_v2c_enabled(void)
 {
   return snmp_version_enabled(SNMP_VERSION_2c);
 }
 
+/*********************************************************************************************************
+** 函数名称: snmp_v3_enabled
+** 功能描述: 判断当前协议栈 snmpv3 功能是否使能
+** 输	 入: 
+** 输	 出: 1 - 当前协议栈“使能”了 snmpv3 功能
+**         : 0 - 当前协议栈“没使能” snmpv3 功能
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 u8_t
 snmp_v3_enabled(void)
 {
   return snmp_version_enabled(SNMP_VERSION_3);
 }
 
+/*********************************************************************************************************
+** 函数名称: snmp_version_enable
+** 功能描述: 设置当前协议栈指定版本的 snmp 的使能情况
+** 输	 入: version - 指定的 snmp 版本号
+**         : enable - 表示需要设置的使能情况
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void
 snmp_version_enable(u8_t version, u8_t enable)
 {
@@ -135,18 +182,42 @@ snmp_version_enable(u8_t version, u8_t enable)
   }
 }
 
+/*********************************************************************************************************
+** 函数名称: snmp_v1_enable
+** 功能描述: 设置当前协议栈 snmpv1 的使能情况
+** 输	 入: enable - 表示需要设置的使能情况
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 snmp_v1_enable(u8_t enable)
 {
   snmp_version_enable(SNMP_VERSION_1, enable);
 }
 
+/*********************************************************************************************************
+** 函数名称: snmp_v2c_enable
+** 功能描述: 设置当前协议栈 snmpv2 的使能情况
+** 输	 入: enable - 表示需要设置的使能情况
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 snmp_v2c_enable(u8_t enable)
 {
   snmp_version_enable(SNMP_VERSION_2c, enable);
 }
 
+/*********************************************************************************************************
+** 函数名称: snmp_v3_enable
+** 功能描述: 设置当前协议栈 snmpv3 的使能情况
+** 输	 入: enable - 表示需要设置的使能情况
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 snmp_v3_enable(u8_t enable)
 {
@@ -160,6 +231,14 @@ snmp_v3_enable(u8_t enable)
  * Returns current SNMP community string.
  * @return current SNMP community string
  */
+/*********************************************************************************************************
+** 函数名称: snmp_get_community
+** 功能描述: 获取当前协议栈使用的 community 字符串信息
+** 输	 入: 
+** 输	 出: const char * - 获取到的 community 字符串信息
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 const char *
 snmp_get_community(void)
 {
@@ -174,6 +253,14 @@ snmp_get_community(void)
  *
  * @param community is a pointer to new community string
  */
+/*********************************************************************************************************
+** 函数名称: snmp_set_community
+** 功能描述: 设置当前协议栈的 community 字符串信息
+** 输	 入: community - 想要设置的 community 字符串信息
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 snmp_set_community(const char *const community)
 {
@@ -187,6 +274,14 @@ snmp_set_community(const char *const community)
  * Returns current SNMP write-access community string.
  * @return current SNMP write-access community string
  */
+/*********************************************************************************************************
+** 函数名称: snmp_get_community_write
+** 功能描述: 获取当前协议栈使用的 community write 字符串信息
+** 输	 入: 
+** 输	 出: const char * - 获取到的 community write 字符串信息
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 const char *
 snmp_get_community_write(void)
 {
@@ -198,6 +293,14 @@ snmp_get_community_write(void)
  * Returns current SNMP community string used for sending traps.
  * @return current SNMP community string used for sending traps
  */
+/*********************************************************************************************************
+** 函数名称: snmp_get_community_trap
+** 功能描述: 获取当前协议栈使用的 community trap 字符串信息
+** 输	 入: 
+** 输	 出: const char * - 获取到的 community trap 字符串信息
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 const char *
 snmp_get_community_trap(void)
 {
@@ -212,6 +315,14 @@ snmp_get_community_trap(void)
  *
  * @param community is a pointer to new write-access community string
  */
+/*********************************************************************************************************
+** 函数名称: snmp_set_community_write
+** 功能描述: 设置当前协议栈的 community write 字符串信息
+** 输	 入: community - 想要设置的 community write 字符串信息
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 snmp_set_community_write(const char *const community)
 {
@@ -229,6 +340,14 @@ snmp_set_community_write(const char *const community)
  *
  * @param community is a pointer to new trap community string
  */
+/*********************************************************************************************************
+** 函数名称: snmp_set_community_trap
+** 功能描述: 设置当前协议栈的 community trap 字符串信息
+** 输	 入: community - 想要设置的 community trap 字符串信息
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 snmp_set_community_trap(const char *const community)
 {
@@ -241,6 +360,15 @@ snmp_set_community_trap(const char *const community)
  * @ingroup snmp_core
  * Callback fired on every successful write access
  */
+/*********************************************************************************************************
+** 函数名称: snmp_set_write_callback
+** 功能描述: 设置当前协议栈的写回调函数指针和写回调函数参数
+** 输	 入: write_callback - 想要设置的写回调函数指针
+**         : callback_arg - 想要设置的写回调函数参数信息
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 snmp_set_write_callback(snmp_write_callback_fct write_callback, void *callback_arg)
 {
@@ -263,17 +391,40 @@ static err_t snmp_prepare_outbound_frame(struct snmp_request *request);
 static err_t snmp_complete_outbound_frame(struct snmp_request *request);
 static void snmp_execute_write_callbacks(struct snmp_request *request);
 
-
 /* ----------------------------------------------------------------------- */
 /* implementation */
 /* ----------------------------------------------------------------------- */
 
+/*********************************************************************************************************
+** 函数名称: snmp_receive
+** 功能描述: 接收并处理接收到的 snmp 数据包，操作如下：
+**         : 1. 解析并校验接收到的 snmp 请求数据包并把解析结果存储到 request 中
+**         : 2. 根据指定 snmp 请求数据包信息封装一个 snmp 发送数据包并存储到 request 结构中
+**         : 3. 如果当前请求的操作都正常则根据 snmp 请求类型分别执行对应的请求操作
+**         :    #if LWIP_SNMP_V3
+**         :      a. 
+**         :    #endif
+**         : 4. 在处理完 snmp 请求后，对指定的发送 snmp 数据包进行二次编码
+**         : 5. 把封装好的发送 snmp 数据包发送到当前 snmp 请求数据包的源地址处
+**         : 6. 如果当前接收到的 snmp 请求是写请求并且写操作执行成功，遍历指定的 snmp 请求数据包的
+**         :    request->inbound_pbuf 数据缓冲流中的所有 snmp_varbind 数据结构信息并分别执行指定的
+**         :    钩子回调操作
+**         : 7. 释放当前 snmp 发送数据包占用的 pbuf 结构
+** 输	 入: handle - 接收到 snmp 数据包的连接句柄
+**         : p - 接收到的 snmp 数据包指针
+**         : source_ip - 接收到 snmp 数据包的源 IP 地址
+**         : port - 接收到 snmp 数据包的源端口
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 snmp_receive(void *handle, struct pbuf *p, const ip_addr_t *source_ip, u16_t port)
 {
   err_t err;
   struct snmp_request request;
 
+  /* 根据函数参数初始化并构建一个 snmp 请求数据结构 */
   memset(&request, 0, sizeof(request));
   request.handle       = handle;
   request.source_ip    = source_ip;
@@ -282,11 +433,15 @@ snmp_receive(void *handle, struct pbuf *p, const ip_addr_t *source_ip, u16_t por
 
   snmp_stats.inpkts++;
 
+  /* 解析并校验接收到的 snmp 请求数据包并把解析结果存储到 request 中 */
   err = snmp_parse_inbound_frame(&request);
   if (err == ERR_OK) {
+
+    /* 根据指定 snmp 请求数据包信息封装一个 snmp 发送数据包并存储到 request 结构中 */
     err = snmp_prepare_outbound_frame(&request);
     if (err == ERR_OK) {
 
+      /* 如果当前请求的操作都正常则根据 snmp 请求类型分别执行对应的请求操作 */
       if (request.error_status == SNMP_ERR_NOERROR) {
         /* only process frame if we do not already have an error to return (e.g. all readonly) */
         if (request.request_type == SNMP_ASN1_CONTEXT_PDU_GET_REQ) {
@@ -299,6 +454,7 @@ snmp_receive(void *handle, struct pbuf *p, const ip_addr_t *source_ip, u16_t por
           err = snmp_process_set_request(&request);
         }
       }
+	  
 #if LWIP_SNMP_V3
       else {
         struct snmp_varbind vb;
@@ -358,14 +514,19 @@ snmp_receive(void *handle, struct pbuf *p, const ip_addr_t *source_ip, u16_t por
         request.request_out_type = (SNMP_ASN1_CLASS_CONTEXT | SNMP_ASN1_CONTENTTYPE_CONSTRUCTED | SNMP_ASN1_CONTEXT_PDU_REPORT);
         request.request_id = request.msg_id;
       }
-#endif
+#endif /* #endif LWIP_SNMP_V3 */
 
       if (err == ERR_OK) {
+
+	    /* 在处理完 snmp 请求后，对指定的发送 snmp 数据包进行二次编码 */
         err = snmp_complete_outbound_frame(&request);
 
+        /* 把封装好的发送 snmp 数据包发送到当前 snmp 请求数据包的源地址处 */
         if (err == ERR_OK) {
           err = snmp_sendto(request.handle, request.outbound_pbuf, request.source_ip, request.source_port);
 
+          /* 如果当前接收到的 snmp 请求是写请求并且写操作执行成功，遍历指定的 snmp 请求数据包的 request->inbound_pbuf
+             数据缓冲流中的所有 snmp_varbind 数据结构信息并分别执行指定的钩子回调操作 */
           if ((request.request_type == SNMP_ASN1_CONTEXT_PDU_SET_REQ)
               && (request.error_status == SNMP_ERR_NOERROR)
               && (snmp_write_callback != NULL)) {
@@ -376,12 +537,23 @@ snmp_receive(void *handle, struct pbuf *p, const ip_addr_t *source_ip, u16_t por
       }
     }
 
+    /* 释放当前 snmp 发送数据包占用的 pbuf 结构 */
     if (request.outbound_pbuf != NULL) {
       pbuf_free(request.outbound_pbuf);
     }
   }
 }
 
+/*********************************************************************************************************
+** 函数名称: snmp_msg_getnext_validate_node_inst
+** 功能描述: 用于验证获取到的 snmp 属性结构中的叶子节点实例的有效性
+** 输	 入: node_instance - 需要验证的示例指针
+**         : validate_arg - 当前 snmp 请求数据包指针
+** 输	 出: SNMP_ERR_NOERROR - 有效
+**         : SNMP_ERR_NOSUCHINSTANCE - 无效
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static u8_t
 snmp_msg_getnext_validate_node_inst(struct snmp_node_instance *node_instance, void *validate_arg)
 {
@@ -399,6 +571,22 @@ snmp_msg_getnext_validate_node_inst(struct snmp_node_instance *node_instance, vo
   return SNMP_ERR_NOERROR;
 }
 
+/*********************************************************************************************************
+** 函数名称: snmp_process_varbind
+** 功能描述: 处理指定的 snmp variable bind 操作请求数据，读取指定 oid 对象的值，操作如下：
+**         : 1. 根据函数参数从当前系统的 snmp 树形结构中获取和指定 vb->oid 匹配的叶子节点实例   
+**         : 2. 验证获取到的叶子节点实例的有效性
+**         : 3. 获取指定的 variable bind 实例对象值并存储到 vb->value 中
+**         : 4. 把指定的 varbind 结构中的有用数据（oid、type、value_len、value）按照 ans1 格式编码
+**         : 	到指定的 request->outbound_pbuf_stream 数据缓冲流数据结构中
+**         : 5. 释放指定的叶子节点实例结构
+** 输	 入: request - 当前处理的 snmp 请求数据包指针
+**         : vb - 指定的 variable bind 信息指针
+**         : get_next - 是否获取指定 oid 的下一个叶子节点实例
+** 输	 出: vb->value - 获取到的指定的 variable bind 实例对象值
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void
 snmp_process_varbind(struct snmp_request *request, struct snmp_varbind *vb, u8_t get_next)
 {
@@ -406,18 +594,29 @@ snmp_process_varbind(struct snmp_request *request, struct snmp_varbind *vb, u8_t
   struct snmp_node_instance node_instance;
   memset(&node_instance, 0, sizeof(node_instance));
 
+  /* 根据函数参数从当前系统的 snmp 树形结构中获取和指定 oid 匹配的叶子节点实例 */
   if (get_next) {
     struct snmp_obj_id result_oid;
+
+    /* 在当前系统内遍历所有的 mib 树形结构并以 oid 为关键字按照升序方式查找和指定的 snmp oid 
+       最接近的下一个叶子节点，如果找到满足条件的叶子节点则执行如下操作：
+       1. 调用查找到的叶子节点的 get_next_instance 接口获取这个叶子节点的下一个实例信息
+       2. 如果函数参数指定了节点的有效性验证函数指针，则执行有效性验证操作并返回这个节点
+          实例的完整 snmp oid */
     request->error_status = snmp_get_next_node_instance_from_oid(vb->oid.id, vb->oid.len, snmp_msg_getnext_validate_node_inst, request,  &result_oid, &node_instance);
 
     if (request->error_status == SNMP_ERR_NOERROR) {
       snmp_oid_assign(&vb->oid, result_oid.id, result_oid.len);
     }
   } else {
+
+    /* 遍历当前系统内所有有效的 mib 列表成员查找和指定的 snmp oid 匹配的叶子节点并
+       返回这个叶子节点的实例信息 */
     request->error_status = snmp_get_node_instance_from_oid(vb->oid.id, vb->oid.len, &node_instance);
 
     if (request->error_status == SNMP_ERR_NOERROR) {
       /* use 'getnext_validate' method for validation to avoid code duplication (some checks have to be executed here) */
+	  /* 验证获取到的叶子节点实例的有效性 */
       request->error_status = snmp_msg_getnext_validate_node_inst(&node_instance, request);
 
       if (request->error_status != SNMP_ERR_NOERROR) {
@@ -428,13 +627,15 @@ snmp_process_varbind(struct snmp_request *request, struct snmp_varbind *vb, u8_t
     }
   }
 
-  if (request->error_status != SNMP_ERR_NOERROR)  {
+  if (request->error_status != SNMP_ERR_NOERROR) {
     if (request->error_status >= SNMP_VARBIND_EXCEPTION_OFFSET) {
       if ((request->version == SNMP_VERSION_2c) || request->version == SNMP_VERSION_3) {
         /* in SNMP v2c a varbind related exception is stored in varbind and not in frame header */
         vb->type = (SNMP_ASN1_CONTENTTYPE_PRIMITIVE | SNMP_ASN1_CLASS_CONTEXT | (request->error_status & SNMP_VARBIND_EXCEPTION_MASK));
         vb->value_len = 0;
 
+        /* 把指定的 varbind 结构中的有用数据（oid、type、value_len、value）按照 ans1 格式编码
+           到指定的 request->outbound_pbuf_stream 数据缓冲流数据结构中 */
         err = snmp_append_outbound_varbind(&(request->outbound_pbuf_stream), vb);
         if (err == ERR_OK) {
           /* we stored the exception in varbind -> go on */
@@ -450,6 +651,8 @@ snmp_process_varbind(struct snmp_request *request, struct snmp_varbind *vb, u8_t
       request->error_status = SNMP_ERR_GENERROR;
     }
   } else {
+
+    /* 获取指定的 variable bind 实例对象值并存储到 vb->value 中 */
     s16_t len = node_instance.get_value(&node_instance, vb->value);
 
     if (len >= 0) {
@@ -457,6 +660,9 @@ snmp_process_varbind(struct snmp_request *request, struct snmp_varbind *vb, u8_t
       vb->type = node_instance.asn1_type;
 
       LWIP_ASSERT("SNMP_MAX_VALUE_SIZE is configured too low", (vb->value_len & ~SNMP_GET_VALUE_RAW_DATA) <= SNMP_MAX_VALUE_SIZE);
+	  
+	  /* 把指定的 varbind 结构中的有用数据（oid、type、value_len、value）按照 ans1 格式编码
+		 到指定的 request->outbound_pbuf_stream 数据缓冲流数据结构中 */
       err = snmp_append_outbound_varbind(&request->outbound_pbuf_stream, vb);
 
       if (err == ERR_BUF) {
@@ -468,6 +674,7 @@ snmp_process_varbind(struct snmp_request *request, struct snmp_varbind *vb, u8_t
       request->error_status = SNMP_ERR_GENERROR;
     }
 
+    /* 释放指定的叶子节点实例结构 */
     if (node_instance.release_instance != NULL) {
       node_instance.release_instance(&node_instance);
     }
@@ -480,6 +687,16 @@ snmp_process_varbind(struct snmp_request *request, struct snmp_varbind *vb, u8_t
  *
  * @param request points to the associated message process state
  */
+/*********************************************************************************************************
+** 函数名称: snmp_process_get_request
+** 功能描述: 处理一个 snmp get 请求数据包并把获取到的值存储到 request->value_buffer 缓存中
+** 注     释: request->inbound_varbind_enumerator 是在 snmp_parse_inbound_frame 中初始化的
+** 输	 入: request - 表示当前 snmp 请求数据包
+** 输	 出: ERR_OK - 执行成功
+**         : ERR_ARG - 执行失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static err_t
 snmp_process_get_request(struct snmp_request *request)
 {
@@ -490,11 +707,22 @@ snmp_process_get_request(struct snmp_request *request)
   LWIP_DEBUGF(SNMP_DEBUG, ("SNMP get request\n"));
 
   while (request->error_status == SNMP_ERR_NOERROR) {
+
+    /* 尝试从指定的 snmp_varbind_enumerator 数据缓冲流中解析出一个 snmp_varbind 数据结构信息 */
     err = snmp_vb_enumerator_get_next(&request->inbound_varbind_enumerator, &vb);
     if (err == SNMP_VB_ENUMERATOR_ERR_OK) {
+
+	  /* 如果 ((vb.type == SNMP_ASN1_TYPE_NULL) && (vb.value_len == 0)) 表示在上一步执行的
+	     snmp_vb_enumerator_get_next 函数中没有解析出有效的对象值，那么在这个位置通过调用
+	     snmp_process_varbind 函数来获取我们想要获取的对象值 */
       if ((vb.type == SNMP_ASN1_TYPE_NULL) && (vb.value_len == 0)) {
+	  	
+	  	/* 处理指定的 snmp variable bind 操作请求数据，读取指定 oid 对象的值 */
         snmp_process_varbind(request, &vb, 0);
       } else {
+      
+        /* 执行到这表示在上一步执行的 snmp_vb_enumerator_get_next 函数中解析出了有效的对象值
+           所以我们直接返回就可以了 */
         request->error_status = SNMP_ERR_GENERROR;
       }
     } else if (err == SNMP_VB_ENUMERATOR_ERR_EOVB) {
@@ -516,6 +744,16 @@ snmp_process_get_request(struct snmp_request *request)
  *
  * @param request points to the associated message process state
  */
+/*********************************************************************************************************
+** 函数名称: snmp_process_getnext_request
+** 功能描述: 处理一个 snmp get next 请求数据包并把获取到的值存储到 request->value_buffer 缓存中
+** 注     释: request->inbound_varbind_enumerator 是在 snmp_parse_inbound_frame 中初始化的
+** 输	 入: request - 表示当前 snmp 请求数据包
+** 输	 出: ERR_OK - 执行成功
+**         : ERR_ARG - 执行失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static err_t
 snmp_process_getnext_request(struct snmp_request *request)
 {
@@ -526,11 +764,22 @@ snmp_process_getnext_request(struct snmp_request *request)
   LWIP_DEBUGF(SNMP_DEBUG, ("SNMP get-next request\n"));
 
   while (request->error_status == SNMP_ERR_NOERROR) {
+
+    /* 尝试从指定的 snmp_varbind_enumerator 数据缓冲流中解析出一个 snmp_varbind 数据结构信息 */
     err = snmp_vb_enumerator_get_next(&request->inbound_varbind_enumerator, &vb);
     if (err == SNMP_VB_ENUMERATOR_ERR_OK) {
-      if ((vb.type == SNMP_ASN1_TYPE_NULL) && (vb.value_len == 0)) {
+		
+	  /* 如果 ((vb.type == SNMP_ASN1_TYPE_NULL) && (vb.value_len == 0)) 表示在上一步执行的
+	     snmp_vb_enumerator_get_next 函数中没有解析出有效的对象值，那么在这个位置通过调用
+	     snmp_process_varbind 函数来获取我们想要获取的对象值 */
+      if ((vb.type == SNMP_ASN1_TYPE_NULL) && (vb.value_len == 0)) {	  	
+
+	    /* 处理指定的 snmp variable bind 操作请求数据，读取指定 oid 对象的值 */
         snmp_process_varbind(request, &vb, 1);
       } else {
+      
+	    /* 执行到这表示在上一步执行的 snmp_vb_enumerator_get_next 函数中解析出了有效的对象值
+		   所以我们直接返回就可以了 */
         request->error_status = SNMP_ERR_GENERROR;
       }
     } else if (err == SNMP_VB_ENUMERATOR_ERR_EOVB) {
@@ -552,6 +801,22 @@ snmp_process_getnext_request(struct snmp_request *request)
  *
  * @param request points to the associated message process state
  */
+/*********************************************************************************************************
+** 函数名称: snmp_process_getbulk_request
+** 功能描述: 处理一个 snmp get bulk 请求数据包并把获取到的值存储到 request->value_buffer 缓存中
+** 注     释: 1. The get-bulk operation, tells the agent to send as much of the response back as it can.
+**         :    This means that incomplete responses are possible.
+**         : 2. Nonrepeaters tells the get-bulk command that the first N objects can be retrieved
+**         :    with a simple get-next operation.
+**         : 3. Max-repetitions tells the get-bulk command to attempt up to Mget-next operations 
+**         :    to retrieve the remaining objects.
+**         : 4. request->inbound_varbind_enumerator 是在 snmp_parse_inbound_frame 中初始化的
+** 输	 入: request - 表示当前 snmp 请求数据包
+** 输	 出: ERR_OK - 执行成功
+**         : ERR_ARG - 执行失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static err_t
 snmp_process_getbulk_request(struct snmp_request *request)
 {
@@ -563,6 +828,7 @@ snmp_process_getbulk_request(struct snmp_request *request)
   struct snmp_varbind vb;
   vb.value = request->value_buffer;
 
+  /* 根据当前系统设置情况初始化本次读取操作使用的 repetitions 变量值 */
   if (SNMP_LWIP_GETBULK_MAX_REPETITIONS > 0) {
     repetitions = LWIP_MIN(request->max_repetitions, SNMP_LWIP_GETBULK_MAX_REPETITIONS);
   } else {
@@ -572,17 +838,21 @@ snmp_process_getbulk_request(struct snmp_request *request)
   LWIP_DEBUGF(SNMP_DEBUG, ("SNMP get-bulk request\n"));
 
   /* process non repeaters and first repetition */
+  /* 读取当前 snmp 请求数据包中请求的前 non_repeaters 个请求对象数值以及第一个 repetition 请求对象数值
+     并存储到 request->value_buffer 缓冲区中 */
   while (request->error_status == SNMP_ERR_NOERROR) {
     if (non_repeaters == 0) {
       repetition_offset = request->outbound_pbuf_stream.offset;
 
       if (repetitions == 0) {
         /* do not resolve repeaters when repetitions is set to 0 */
-        break;
+        /* 如果当前 snmp 请求数据包没有指定 repetition 类型的请求对象，则直接退出 */
+		break;
       }
       repetitions--;
     }
 
+    /* 尝试从指定的 snmp_varbind_enumerator 数据缓冲流中解析出一个 snmp_varbind 数据结构信息 */
     err = snmp_vb_enumerator_get_next(&request->inbound_varbind_enumerator, &vb);
     if (err == SNMP_VB_ENUMERATOR_ERR_EOVB) {
       /* no more varbinds in request */
@@ -593,24 +863,32 @@ snmp_process_getbulk_request(struct snmp_request *request)
     } else if ((err != SNMP_VB_ENUMERATOR_ERR_OK) || (vb.type != SNMP_ASN1_TYPE_NULL) || (vb.value_len != 0)) {
       request->error_status = SNMP_ERR_GENERROR;
     } else {
+
+	  /* 处理指定的 snmp variable bind 操作请求数据，读取指定 oid 对象的值 */
       snmp_process_varbind(request, &vb, 1);
       non_repeaters--;
     }
   }
 
   /* process repetitions > 1 */
+  /* 如果当前 snmp 请求数据包中指定的 Max-repetitions 参数大于 1，则尝试读取这些指定的对象的数值 */
   while ((request->error_status == SNMP_ERR_NOERROR) && (repetitions > 0) && (request->outbound_pbuf_stream.offset != repetition_offset)) {
 
     u8_t all_endofmibview = 1;
 
+    /* 根据函数指定的参数初始化指定的 snmp_varbind_enumerator */
     snmp_vb_enumerator_init(&repetition_varbind_enumerator, request->outbound_pbuf, repetition_offset, request->outbound_pbuf_stream.offset - repetition_offset);
     repetition_offset = request->outbound_pbuf_stream.offset; /* for next loop */
 
     while (request->error_status == SNMP_ERR_NOERROR) {
       vb.value = NULL; /* do NOT decode value (we enumerate outbound buffer here, so all varbinds have values assigned) */
+
+	  /* 尝试从指定的 snmp_varbind_enumerator 数据缓冲流中解析出一个 snmp_varbind 数据结构信息 */
       err = snmp_vb_enumerator_get_next(&repetition_varbind_enumerator, &vb);
       if (err == SNMP_VB_ENUMERATOR_ERR_OK) {
         vb.value = request->value_buffer;
+
+	    /* 处理指定的 snmp variable bind 操作请求数据，读取指定 oid 对象的值 */
         snmp_process_varbind(request, &vb, 1);
 
         if (request->error_status != SNMP_ERR_NOERROR) {
@@ -650,6 +928,16 @@ snmp_process_getbulk_request(struct snmp_request *request)
  *
  * @param request points to the associated message process state
  */
+/*********************************************************************************************************
+** 函数名称: snmp_process_set_request
+** 功能描述: 处理指定的 snmp set 请求数据包
+** 注     释: request->inbound_varbind_enumerator 是在 snmp_parse_inbound_frame 中初始化的
+** 输	 入: request - 表示当前 snmp 请求数据包
+** 输	 出: ERR_OK - 执行成功
+**         : ERR_ARG - 执行失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/ 
 static err_t
 snmp_process_set_request(struct snmp_request *request)
 {
@@ -660,12 +948,17 @@ snmp_process_set_request(struct snmp_request *request)
   LWIP_DEBUGF(SNMP_DEBUG, ("SNMP set request\n"));
 
   /* perform set test on all objects */
+  /* 遍历指定的 vb_enumerator 中的每一个对象并对其执行 set test 操作 */
   while (request->error_status == SNMP_ERR_NOERROR) {
+
+    /* 尝试从指定的 snmp_varbind_enumerator 数据缓冲流中解析出一个 snmp_varbind 数据结构信息 */
     err = snmp_vb_enumerator_get_next(&request->inbound_varbind_enumerator, &vb);
     if (err == SNMP_VB_ENUMERATOR_ERR_OK) {
       struct snmp_node_instance node_instance;
       memset(&node_instance, 0, sizeof(node_instance));
 
+      /* 遍历当前系统内所有有效的 mib 列表成员查找和指定的 snmp oid 匹配的叶子节点并
+         返回这个叶子节点的实例信息 */
       request->error_status = snmp_get_node_instance_from_oid(vb.oid.id, vb.oid.len, &node_instance);
       if (request->error_status == SNMP_ERR_NOERROR) {
         if (node_instance.asn1_type != vb.type) {
@@ -695,14 +988,23 @@ snmp_process_set_request(struct snmp_request *request)
     }
   }
 
-  /* perform real set operation on all objects */
+  /* perform real set operation on all objects */  
+  /* 遍历指定的 vb_enumerator 中的每一个对象并对其执行 set 操作 */
   if (request->error_status == SNMP_ERR_NOERROR) {
+
+    /* 根据函数指定的参数初始化指定的 snmp_varbind_enumerator */
     snmp_vb_enumerator_init(&request->inbound_varbind_enumerator, request->inbound_pbuf, request->inbound_varbind_offset, request->inbound_varbind_len);
-    while (request->error_status == SNMP_ERR_NOERROR) {
+
+	while (request->error_status == SNMP_ERR_NOERROR) {
+
+	  /* 尝试从指定的 snmp_varbind_enumerator 数据缓冲流中解析出一个 snmp_varbind 数据结构信息 */
       err = snmp_vb_enumerator_get_next(&request->inbound_varbind_enumerator, &vb);
       if (err == SNMP_VB_ENUMERATOR_ERR_OK) {
         struct snmp_node_instance node_instance;
         memset(&node_instance, 0, sizeof(node_instance));
+
+		/* 遍历当前系统内所有有效的 mib 列表成员查找和指定的 snmp oid 匹配的叶子节点并
+           返回这个叶子节点的实例信息 */
         request->error_status = snmp_get_node_instance_from_oid(vb.oid.id, vb.oid.len, &node_instance);
         if (request->error_status == SNMP_ERR_NOERROR) {
           if (node_instance.set_value(&node_instance, vb.value_len, vb.value) != SNMP_ERR_NOERROR) {
@@ -731,6 +1033,7 @@ snmp_process_set_request(struct snmp_request *request)
   return ERR_OK;
 }
 
+/* 如果指定的状态 code != ERR_OK 则 snmp_stats.inasnparseerrs++ 并返回 retValue 值 */
 #define PARSE_EXEC(code, retValue) \
   if ((code) != ERR_OK) { \
     LWIP_DEBUGF(SNMP_DEBUG, ("Malformed ASN.1 detected.\n")); \
@@ -738,6 +1041,7 @@ snmp_process_set_request(struct snmp_request *request)
     return retValue; \
   }
 
+/* 如果指定的状态 cond == 0 则 snmp_stats.inasnparseerrs++ 并返回 retValue 值 */
 #define PARSE_ASSERT(cond, retValue) \
   if (!(cond)) { \
     LWIP_DEBUGF(SNMP_DEBUG, ("SNMP parse assertion failed!: " # cond)); \
@@ -745,13 +1049,17 @@ snmp_process_set_request(struct snmp_request *request)
     return retValue; \
   }
 
+/* 如果指定的状态 cond != ERR_OK 则返回 retValue 值 */
 #define BUILD_EXEC(code, retValue) \
   if ((code) != ERR_OK) { \
     LWIP_DEBUGF(SNMP_DEBUG, ("SNMP error during creation of outbound frame!: " # code)); \
     return retValue; \
   }
 
+/* 如果指定的状态 code != ERR_OK 则 snmp_stats.inasnparseerrs++ 并返回 ERR_ARG */
 #define IF_PARSE_EXEC(code)   PARSE_EXEC(code, ERR_ARG)
+
+/* 如果指定的状态 cond == 0 则 snmp_stats.inasnparseerrs++ 并返回 ERR_ARG */
 #define IF_PARSE_ASSERT(code) PARSE_ASSERT(code, ERR_ARG)
 
 /**
@@ -762,6 +1070,34 @@ snmp_process_set_request(struct snmp_request *request)
  * - ERR_OK SNMP header is sane and accepted
  * - ERR_VAL SNMP header is either malformed or rejected
  */
+/*********************************************************************************************************
+** 函数名称: snmp_parse_inbound_frame
+** 功能描述: 解析并校验接收到的 snmp 请求数据包并把解析结果存储到 request 中，操作如下：
+**         : 1. 根据 request->inbound_pbuf 参数初始化指定的 snmp 数据缓冲流结构
+**         : 2. 从初始化好的 snmp 数据缓冲流中解析出 tlv 信息数据
+**         : 3. 从接收到的 snmp 数据包中解析出 snmp 版本号并进行校验
+**         :    #if LWIP_SNMP_V3
+**         :      a. 从接收到的 snmp 数据包中解析出 snmpv3 相关的数据
+**         :    #endif
+**         : 4. 从当前 snmp 请求数据包的缓存数据流中解析出 community 数据信息并存储到 
+**         :    request->community 中
+**         : 5. 从当前 snmp 请求数据包的缓存数据流中解析出当前 snmp 操作请求类型并存储到 
+**         :    request->request_type 中
+**         : 6. 对接收到的数据包的 community 数据进行有效性验证
+**         : 7. 从当前 snmp 请求数据包的缓存数据流中解析出请求 id 并存储到 request->request_id 中
+**         : 8. 从当前 snmp 请求数据包的缓存数据流中解析出 error status 信息并存储到 s32_value 或者
+**         :    non-repeaters 信息并存储到 request->non_repeaters 中
+**         : 9. 从当前 snmp 请求数据包的缓存数据流中解析出 error index 信息并存储到 request->error_index 或者
+**         :    max-repetitions 信息并存储到 request->max_repetitions 中
+**         : 10.从当前 snmp 请求数据包的缓存数据流中解析出 varbind-list type 信息并校验
+**         : 11.根据函数指定的参数初始化指定的 snmp_varbind_enumerato
+** 输	 入: request - 接收到的 snmp 请求包
+** 输	 出: ERR_OK - 执行成功
+**         : ERR_ARG - 参数错误
+**         : ERR_MEM - 内存错误
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static err_t
 snmp_parse_inbound_frame(struct snmp_request *request)
 {
@@ -775,14 +1111,17 @@ snmp_parse_inbound_frame(struct snmp_request *request)
   snmpv3_priv_algo_t priv;
 #endif
 
+  /* 根据 request->inbound_pbuf 参数初始化指定的 snmp 数据缓冲流结构 */
   IF_PARSE_EXEC(snmp_pbuf_stream_init(&pbuf_stream, request->inbound_pbuf, 0, request->inbound_pbuf->tot_len));
 
   /* decode main container consisting of version, community and PDU */
+  /* 从初始化好的 snmp 数据缓冲流中解析出 tlv 信息数据 */
   IF_PARSE_EXEC(snmp_asn1_dec_tlv(&pbuf_stream, &tlv));
   IF_PARSE_ASSERT((tlv.type == SNMP_ASN1_TYPE_SEQUENCE) && (tlv.value_len == pbuf_stream.length));
   parent_tlv_value_len = tlv.value_len;
 
   /* decode version */
+  /* 从接收到的 snmp 数据包中解析出 snmp 版本号并进行校验 */
   IF_PARSE_EXEC(snmp_asn1_dec_tlv(&pbuf_stream, &tlv));
   IF_PARSE_ASSERT(tlv.type == SNMP_ASN1_TYPE_INTEGER);
   parent_tlv_value_len -= SNMP_ASN1_TLV_LENGTH(tlv);
@@ -1127,7 +1466,9 @@ snmp_parse_inbound_frame(struct snmp_request *request)
     request->context_name_len = (u8_t)u16_value;
     /* TODO: do we need to verify this contextname too? */
   } else
-#endif
+#endif  /* endif LWIP_SNMP_V3 */
+
+  /* 从当前 snmp 请求数据包的缓存数据流中解析出 community 数据信息并存储到 request->community 中 */
   {
     /* decode community */
     IF_PARSE_EXEC(snmp_asn1_dec_tlv(&pbuf_stream, &tlv));
@@ -1139,6 +1480,7 @@ snmp_parse_inbound_frame(struct snmp_request *request)
     if (err == ERR_MEM) {
       /* community string does not fit in our buffer -> its too long -> its invalid */
       request->community_strlen = 0;
+	  /* 如果在解析 community 信息的时候出错了，则跳过 snmp 缓存数据流中的 community 数据，继续后续解析操作 */
       snmp_pbuf_stream_seek(&pbuf_stream, tlv.value_len);
     } else {
       IF_PARSE_ASSERT(err == ERR_OK);
@@ -1154,6 +1496,7 @@ snmp_parse_inbound_frame(struct snmp_request *request)
   parent_tlv_value_len = tlv.value_len;
 
   /* validate PDU type */
+  /* 从当前 snmp 请求数据包的缓存数据流中解析出当前 snmp 操作请求类型并存储到 request->request_type 中 */
   switch (tlv.type) {
     case (SNMP_ASN1_CLASS_CONTEXT | SNMP_ASN1_CONTENTTYPE_CONSTRUCTED | SNMP_ASN1_CONTEXT_PDU_GET_REQ):
       /* GetRequest PDU */
@@ -1183,6 +1526,7 @@ snmp_parse_inbound_frame(struct snmp_request *request)
   request->request_out_type = (SNMP_ASN1_CLASS_CONTEXT | SNMP_ASN1_CONTENTTYPE_CONSTRUCTED | SNMP_ASN1_CONTEXT_PDU_GET_RESP);
 
   /* validate community (do this after decoding PDU type because we don't want to increase 'inbadcommunitynames' for wrong frame types */
+  /* 对接收到的数据包的 community 数据进行有效性验证 */
   if (request->community_strlen == 0) {
     /* community string was too long or really empty*/
     snmp_stats.inbadcommunitynames++;
@@ -1208,7 +1552,8 @@ snmp_parse_inbound_frame(struct snmp_request *request)
     }
   }
 
-  /* decode request ID */
+  /* decode request ID */  
+  /* 从当前 snmp 请求数据包的缓存数据流中解析出请求 id 并存储到 request->request_id 中 */
   IF_PARSE_EXEC(snmp_asn1_dec_tlv(&pbuf_stream, &tlv));
   IF_PARSE_ASSERT(tlv.type == SNMP_ASN1_TYPE_INTEGER);
   parent_tlv_value_len -= SNMP_ASN1_TLV_LENGTH(tlv);
@@ -1217,6 +1562,8 @@ snmp_parse_inbound_frame(struct snmp_request *request)
   IF_PARSE_EXEC(snmp_asn1_dec_s32t(&pbuf_stream, tlv.value_len, &request->request_id));
 
   /* decode error status / non-repeaters */
+  /* 从当前 snmp 请求数据包的缓存数据流中解析出 error status 信息并存储到 s32_value 或者
+     non-repeaters 信息并存储到 request->non_repeaters 中 */
   IF_PARSE_EXEC(snmp_asn1_dec_tlv(&pbuf_stream, &tlv));
   IF_PARSE_ASSERT(tlv.type == SNMP_ASN1_TYPE_INTEGER);
   parent_tlv_value_len -= SNMP_ASN1_TLV_LENGTH(tlv);
@@ -1234,7 +1581,9 @@ snmp_parse_inbound_frame(struct snmp_request *request)
     IF_PARSE_ASSERT(s32_value == SNMP_ERR_NOERROR);
   }
 
-  /* decode error index / max-repetitions */
+  /* decode error index / max-repetitions */  
+  /* 从当前 snmp 请求数据包的缓存数据流中解析出 error index 信息并存储到 request->error_index 或者
+     max-repetitions 信息并存储到 request->max_repetitions 中 */
   IF_PARSE_EXEC(snmp_asn1_dec_tlv(&pbuf_stream, &tlv));
   IF_PARSE_ASSERT(tlv.type == SNMP_ASN1_TYPE_INTEGER);
   parent_tlv_value_len -= SNMP_ASN1_TLV_LENGTH(tlv);
@@ -1251,19 +1600,49 @@ snmp_parse_inbound_frame(struct snmp_request *request)
     IF_PARSE_ASSERT(s32_value == 0);
   }
 
-  /* decode varbind-list type (next container level) */
+  /* decode varbind-list type (next container level) */  
+  /* 从当前 snmp 请求数据包的缓存数据流中解析出 varbind-list type 信息并校验 */
   IF_PARSE_EXEC(snmp_asn1_dec_tlv(&pbuf_stream, &tlv));
   IF_PARSE_ASSERT((tlv.type == SNMP_ASN1_TYPE_SEQUENCE) && (tlv.value_len <= pbuf_stream.length));
 
+  /* 因为在对 pbuf_stream 操作的时候 pbuf_stream.offset 会同步移动，所以在执行到这的时候 
+     pbuf_stream.offset 指向的是 inbound_varbind */
   request->inbound_varbind_offset = pbuf_stream.offset;
   request->inbound_varbind_len    = pbuf_stream.length - request->inbound_padding_len;
+
+  /* 根据函数指定的参数初始化指定的 snmp_varbind_enumerato */
   snmp_vb_enumerator_init(&(request->inbound_varbind_enumerator), request->inbound_pbuf, request->inbound_varbind_offset, request->inbound_varbind_len);
 
   return ERR_OK;
 }
 
+/* 如果指定的状态 cond != ERR_OK 则返回 ERR_ARG 值 */
 #define OF_BUILD_EXEC(code) BUILD_EXEC(code, ERR_ARG)
 
+/*********************************************************************************************************
+** 函数名称: snmp_prepare_outbound_frame
+** 功能描述: 根据指定 snmp 请求数据包信息封装一个 snmp 发送数据包并存储到 request 结构中，操作如下：
+**         : 1. 为当前 snmp 请求包的 request->outbound_pbuf 字段申请一个 pbuf 缓冲区
+**         : 2. 根据成功申请的 request->outbound_pbuf 缓冲区初始化指定的 snmp 数据缓冲流结构
+**         : 3. 根据指定参数初始化一个 SNMP_ASN1_TYPE_SEQUENCE 类型的 tlv 数据结构
+**         : 4. 把初始化好的 SNMP_ASN1_TYPE_SEQUENCE 类型的 tlv 数据结构按照 tlv 结构编码到指定的 
+**         :    snmp 数据缓冲流中（这个字段数据是当前 snmp 消息序列号）
+**         : 5. 把当前 snmp 请求包的版本号信息编码到指定的 snmp 数据缓冲流中
+**         :    #if LWIP_SNMP_V3 && request->version == V3
+**         :      a. 向指定的 snmp 数据缓冲流中打包 snmpv3 相关数据
+**         :    #endif
+**         : 6. 把当前 snmp 请求包的 community 信息编码到指定的 snmp 数据缓冲流中
+**         : 7. 把当前 snmp 请求包的 PDU 序列号编码到指定的 snmp 数据缓冲流中
+**         : 8. 把当前 snmp 请求包的请求 ID 号编码到指定的 snmp 数据缓冲流中
+**         : 9. 把当前 snmp 请求包的 error status 编码到指定的 snmp 数据缓冲流中
+**         : 10.把当前 snmp 请求包的 error index 编码到指定的 snmp 数据缓冲流中
+**         : 11.把当前 snmp 请求包的 VarBindList 序列号编码到指定的 snmp 数据缓冲流中
+** 输	 入: request - 需要构建的 snmp 请求包
+** 输	 出: ERR_OK - 执行成功
+**         : ERR_MEM - 内存错误
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static err_t
 snmp_prepare_outbound_frame(struct snmp_request *request)
 {
@@ -1271,18 +1650,24 @@ snmp_prepare_outbound_frame(struct snmp_request *request)
   struct snmp_pbuf_stream *pbuf_stream = &(request->outbound_pbuf_stream);
 
   /* try allocating pbuf(s) for maximum response size */
+  /* 为当前 snmp 请求包的 request->outbound_pbuf 字段申请一个 pbuf 缓冲区 */
   request->outbound_pbuf = pbuf_alloc(PBUF_TRANSPORT, 1472, PBUF_RAM);
   if (request->outbound_pbuf == NULL) {
     return ERR_MEM;
   }
 
+  /* 根据成功申请的 request->outbound_pbuf 缓冲区初始化指定的 snmp 数据缓冲流结构 */
   snmp_pbuf_stream_init(pbuf_stream, request->outbound_pbuf, 0, request->outbound_pbuf->tot_len);
 
-  /* 'Message' sequence */
+  /* 'Message' sequence */  
+  /* 根据指定参数初始化一个 SNMP_ASN1_TYPE_SEQUENCE 类型的 tlv 数据结构 */
   SNMP_ASN1_SET_TLV_PARAMS(tlv, SNMP_ASN1_TYPE_SEQUENCE, 3, 0);
+
+  /* 把初始化好的 SNMP_ASN1_TYPE_SEQUENCE 类型的 tlv 数据结构按照 tlv 结构编码到指定的 snmp 数据缓冲流中 */
   OF_BUILD_EXEC( snmp_ans1_enc_tlv(pbuf_stream, &tlv) );
 
   /* version */
+  /* 把当前 snmp 请求包的版本号信息编码到指定的 snmp 数据缓冲流中 */
   SNMP_ASN1_SET_TLV_PARAMS(tlv, SNMP_ASN1_TYPE_INTEGER, 0, 0);
   snmp_asn1_enc_s32t_cnt(request->version, &tlv.value_len);
   OF_BUILD_EXEC( snmp_ans1_enc_tlv(pbuf_stream, &tlv) );
@@ -1292,6 +1677,7 @@ snmp_prepare_outbound_frame(struct snmp_request *request)
   if (request->version < SNMP_VERSION_3) {
 #endif
     /* community */
+    /* 把当前 snmp 请求包的 community 信息编码到指定的 snmp 数据缓冲流中 */
     SNMP_ASN1_SET_TLV_PARAMS(tlv, SNMP_ASN1_TYPE_OCTET_STRING, 0, request->community_strlen);
     OF_BUILD_EXEC( snmp_ans1_enc_tlv(pbuf_stream, &tlv) );
     OF_BUILD_EXEC( snmp_asn1_enc_raw(pbuf_stream, request->community, request->community_strlen) );
@@ -1425,33 +1811,38 @@ snmp_prepare_outbound_frame(struct snmp_request *request)
     SNMP_ASN1_SET_TLV_PARAMS(tlv, SNMP_ASN1_TYPE_OCTET_STRING, 0, request->context_name_len);
     OF_BUILD_EXEC(snmp_ans1_enc_tlv(pbuf_stream, &tlv));
     OF_BUILD_EXEC(snmp_asn1_enc_raw(pbuf_stream, request->context_name, request->context_name_len));
-  }
+  } /* #endif LWIP_SNMP_V3 && request->version == V3 */
 #endif
 
   /* 'PDU' sequence */
+  /* 把当前 snmp 请求包的 PDU 序列号编码到指定的 snmp 数据缓冲流中 */
   request->outbound_pdu_offset = pbuf_stream->offset;
   SNMP_ASN1_SET_TLV_PARAMS(tlv, request->request_out_type, 3, 0);
   OF_BUILD_EXEC( snmp_ans1_enc_tlv(pbuf_stream, &tlv) );
 
-  /* request ID */
+  /* request ID */  
+  /* 把当前 snmp 请求包的请求 ID 号编码到指定的 snmp 数据缓冲流中 */
   SNMP_ASN1_SET_TLV_PARAMS(tlv, SNMP_ASN1_TYPE_INTEGER, 0, 0);
   snmp_asn1_enc_s32t_cnt(request->request_id, &tlv.value_len);
   OF_BUILD_EXEC( snmp_ans1_enc_tlv(pbuf_stream, &tlv) );
   OF_BUILD_EXEC( snmp_asn1_enc_s32t(pbuf_stream, tlv.value_len, request->request_id) );
 
-  /* error status */
+  /* error status */  
+  /* 把当前 snmp 请求包的 error status 编码到指定的 snmp 数据缓冲流中 */
   SNMP_ASN1_SET_TLV_PARAMS(tlv, SNMP_ASN1_TYPE_INTEGER, 0, 1);
   OF_BUILD_EXEC( snmp_ans1_enc_tlv(pbuf_stream, &tlv) );
   request->outbound_error_status_offset = pbuf_stream->offset;
   OF_BUILD_EXEC( snmp_pbuf_stream_write(pbuf_stream, 0) );
 
-  /* error index */
+  /* error index */  
+  /* 把当前 snmp 请求包的 error index 编码到指定的 snmp 数据缓冲流中 */
   SNMP_ASN1_SET_TLV_PARAMS(tlv, SNMP_ASN1_TYPE_INTEGER, 0, 1);
   OF_BUILD_EXEC( snmp_ans1_enc_tlv(pbuf_stream, &tlv) );
   request->outbound_error_index_offset = pbuf_stream->offset;
   OF_BUILD_EXEC( snmp_pbuf_stream_write(pbuf_stream, 0) );
 
-  /* 'VarBindList' sequence */
+  /* 'VarBindList' sequence */  
+  /* 把当前 snmp 请求包的 VarBindList 序列号编码到指定的 snmp 数据缓冲流中 */
   SNMP_ASN1_SET_TLV_PARAMS(tlv, SNMP_ASN1_TYPE_SEQUENCE, 3, 0);
   OF_BUILD_EXEC( snmp_ans1_enc_tlv(pbuf_stream, &tlv) );
 
@@ -1461,6 +1852,16 @@ snmp_prepare_outbound_frame(struct snmp_request *request)
 }
 
 /** Calculate the length of a varbind list */
+/*********************************************************************************************************
+** 函数名称: snmp_varbind_length
+** 功能描述: 计算指定的 snmp variable bind 结构相关的长度信息
+** 输	 入: varbind - 需要计算的 snmp variable bind 结构指针
+** 输	 出: len - 存储长度信息的结构体指针
+**         : ERR_OK - 操作成功
+**         : ERR_VAL - 变量类型错误
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 err_t
 snmp_varbind_length(struct snmp_varbind *varbind, struct snmp_varbind_len *len)
 {
@@ -1526,8 +1927,20 @@ snmp_varbind_length(struct snmp_varbind *varbind, struct snmp_varbind_len *len)
   return ERR_OK;
 }
 
+/* 如果指定的状态 cond != ERR_OK 则返回 ERR_ARG 值 */
 #define OVB_BUILD_EXEC(code) BUILD_EXEC(code, ERR_ARG)
 
+/*********************************************************************************************************
+** 函数名称: snmp_append_outbound_varbind
+** 功能描述: 把指定的 varbind 结构中的有用数据（oid、type、value_len、value）按照 ans1 格式编码
+**         : 到指定的 snmp 数据缓冲流数据结构中
+** 输	 入: pbuf_stream - 指定的 snmp 数据缓冲流数据结构指针
+**         : varbind - 指定的 varbind 结构
+** 输	 出: ERR_OK - 操作成功
+**         : ERR_BUF - 内存错误
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 err_t
 snmp_append_outbound_varbind(struct snmp_pbuf_stream *pbuf_stream, struct snmp_varbind *varbind)
 {
@@ -1535,6 +1948,7 @@ snmp_append_outbound_varbind(struct snmp_pbuf_stream *pbuf_stream, struct snmp_v
   struct snmp_varbind_len len;
   err_t err;
 
+  /* 计算指定的 snmp variable bind 结构相关的长度信息 */
   err = snmp_varbind_length(varbind, &len);
 
   if (err != ERR_OK) {
@@ -1598,6 +2012,29 @@ snmp_append_outbound_varbind(struct snmp_pbuf_stream *pbuf_stream, struct snmp_v
   return ERR_OK;
 }
 
+/*********************************************************************************************************
+** 函数名称: snmp_complete_outbound_frame
+** 功能描述: 在处理完 snmp 请求后，对指定的发送 snmp 数据包进行二次编码，操作如下：
+**         : 1. 根据当前 snmp 请求数据包的版本号执行对应逻辑来设置 request->error_status 的值
+**         : 2. 如果本次 snmp 操作请求执行成功或者本次 snmp 数据包的类型是 SET_REQ，则把接收到的 snmp 
+**         :    数据包中的所有变量值原封不动的复制到发送 snmp 数据包的 request->outbound_pbuf_stream 中
+**         :    #if LWIP_SNMP_V3 && LWIP_SNMP_V3_CRYPTO
+**         :      a.
+**         :    #endif
+**         : 3. 把发送 Message 的 tlv 结构信息编码到指定的发送 snmp 缓冲数据流中
+**         :    #if LWIP_SNMP_V3
+**         :      a.
+**         :    #endif
+**         : 4. 把发送 PDU 的 tlv 结构信息编码到指定的发送 snmp 缓冲数据流中
+**         : 5. 把当前 snmp 请求数据包的处理结果的 request->error_status 值编码到指定的发送 snmp 缓冲数据流中
+**         : 6. 把当前 snmp 请求数据包的处理结果的 request->error_index 值编码到指定的发送 snmp 缓冲数据流中
+**         : 7. 把表示 VarBindList 的 tlv 结构信息编码到指定的发送 snmp 缓冲数据流中
+**         : 8. 收缩指定的 request->outbound_pbuf 应用负载空间长度（把 pbuf 链表尾部多余的 pbuf 释放掉）
+** 输	 入: request - 需要编码的 snmp 请求包
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static err_t
 snmp_complete_outbound_frame(struct snmp_request *request)
 {
@@ -1605,7 +2042,9 @@ snmp_complete_outbound_frame(struct snmp_request *request)
   u16_t frame_size;
   u8_t outbound_padding = 0;
 
+  /* 根据当前 snmp 请求数据包的版本号执行对应逻辑来设置 request->error_status 的值 */
   if (request->version == SNMP_VERSION_1) {
+  	
     if (request->error_status != SNMP_ERR_NOERROR) {
       /* map v2c error codes to v1 compliant error code (according to RFC 2089) */
       switch (request->error_status) {
@@ -1641,6 +2080,7 @@ snmp_complete_outbound_frame(struct snmp_request *request)
       }
     }
   } else {
+  
     if (request->request_type == SNMP_ASN1_CONTEXT_PDU_SET_REQ) {
       /* map error codes to according to RFC 1905 (4.2.5.  The SetRequest-PDU) return 'NotWritable' for unknown OIDs) */
       switch (request->error_status) {
@@ -1659,8 +2099,11 @@ snmp_complete_outbound_frame(struct snmp_request *request)
       LWIP_DEBUGF(SNMP_DEBUG, ("snmp_complete_outbound_frame() > Found v2 request with varbind exception code stored as error status!\n"));
       return ERR_ARG;
     }
+	
   }
 
+  /* 如果本次 snmp 操作请求执行成功或者本次 snmp 数据包的类型是 SET_REQ，则把接收到的 snmp 数据包中的所有变量值
+     原封不动的复制到发送 snmp 数据包的 request->outbound_pbuf_stream 中 */
   if ((request->error_status != SNMP_ERR_NOERROR) || (request->request_type == SNMP_ASN1_CONTEXT_PDU_SET_REQ)) {
     /* all inbound vars are returned in response without any modification for error responses and successful set requests*/
     struct snmp_pbuf_stream inbound_stream;
@@ -1683,6 +2126,7 @@ snmp_complete_outbound_frame(struct snmp_request *request)
 #endif
 
   /* complete missing length in 'Message' sequence ; 'Message' tlv is located at the beginning (offset 0) */
+  /* 把发送 Message 的 tlv 结构信息编码到指定的发送 snmp 缓冲数据流中 */
   SNMP_ASN1_SET_TLV_PARAMS(tlv, SNMP_ASN1_TYPE_SEQUENCE, 3, frame_size + outbound_padding - 1 - 3); /* - type - length_len(fixed, see snmp_prepare_outbound_frame()) */
   OF_BUILD_EXEC( snmp_pbuf_stream_init(&(request->outbound_pbuf_stream), request->outbound_pbuf, 0, request->outbound_pbuf->tot_len) );
   OF_BUILD_EXEC( snmp_ans1_enc_tlv(&(request->outbound_pbuf_stream), &tlv) );
@@ -1715,12 +2159,14 @@ snmp_complete_outbound_frame(struct snmp_request *request)
 #endif
 
   /* complete missing length in 'PDU' sequence */
+  /* 把发送 PDU 的 tlv 结构信息编码到指定的发送 snmp 缓冲数据流中 */
   SNMP_ASN1_SET_TLV_PARAMS(tlv, request->request_out_type, 3,
                            frame_size - request->outbound_pdu_offset - 1 - 3); /* - type - length_len(fixed, see snmp_prepare_outbound_frame()) */
   OF_BUILD_EXEC( snmp_pbuf_stream_seek_abs(&(request->outbound_pbuf_stream), request->outbound_pdu_offset) );
   OF_BUILD_EXEC( snmp_ans1_enc_tlv(&(request->outbound_pbuf_stream), &tlv) );
 
   /* process and encode final error status */
+  /* 把当前 snmp 请求数据包的处理结果的 request->error_status 值编码到指定的发送 snmp 缓冲数据流中 */
   if (request->error_status != 0) {
     u16_t len;
     snmp_asn1_enc_s32t_cnt(request->error_status, &len);
@@ -1762,7 +2208,8 @@ snmp_complete_outbound_frame(struct snmp_request *request)
     }
   }
 
-  /* encode final error index*/
+  /* encode final error index*/  
+  /* 把当前 snmp 请求数据包的处理结果的 request->error_index 值编码到指定的发送 snmp 缓冲数据流中 */
   if (request->error_index != 0) {
     u16_t len;
     snmp_asn1_enc_s32t_cnt(request->error_index, &len);
@@ -1775,6 +2222,7 @@ snmp_complete_outbound_frame(struct snmp_request *request)
   }
 
   /* complete missing length in 'VarBindList' sequence ; 'VarBindList' tlv is located directly before varbind offset */
+  /* 把表示 VarBindList 的 tlv 结构信息编码到指定的发送 snmp 缓冲数据流中 */
   SNMP_ASN1_SET_TLV_PARAMS(tlv, SNMP_ASN1_TYPE_SEQUENCE, 3, frame_size - request->outbound_varbind_offset);
   OF_BUILD_EXEC( snmp_pbuf_stream_seek_abs(&(request->outbound_pbuf_stream), request->outbound_varbind_offset - 1 - 3) ); /* - type - length_len(fixed, see snmp_prepare_outbound_frame()) */
   OF_BUILD_EXEC( snmp_ans1_enc_tlv(&(request->outbound_pbuf_stream), &tlv) );
@@ -1823,6 +2271,7 @@ snmp_complete_outbound_frame(struct snmp_request *request)
   }
 #endif
 
+  /* 收缩指定的 pbuf 应用负载空间长度到指定的值（把 pbuf 链表尾部多余的 pbuf 释放掉）*/
   pbuf_realloc(request->outbound_pbuf, frame_size + outbound_padding);
 
   snmp_stats.outgetresponses++;
@@ -1831,25 +2280,46 @@ snmp_complete_outbound_frame(struct snmp_request *request)
   return ERR_OK;
 }
 
+/*********************************************************************************************************
+** 函数名称: snmp_execute_write_callbacks
+** 功能描述: 遍历指定的 snmp 请求数据包的 request->inbound_pbuf 数据缓冲流中的所有 snmp_varbind 数据
+**         : 结构信息并分别执行指定的钩子回调操作
+** 输	 入: request - 当前处理的 snmp 请求数据包
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void
 snmp_execute_write_callbacks(struct snmp_request *request)
 {
   struct snmp_varbind_enumerator inbound_varbind_enumerator;
   struct snmp_varbind vb;
 
+  /* 根据函数指定的 request->inbound_pbuf 初始化指定的 snmp_varbind_enumerator */
   snmp_vb_enumerator_init(&inbound_varbind_enumerator, request->inbound_pbuf, request->inbound_varbind_offset, request->inbound_varbind_len);
   vb.value = NULL; /* do NOT decode value (we enumerate outbound buffer here, so all varbinds have values assigned, which we don't need here) */
 
+  /* 遍历指定的 snmp_varbind_enumerator 数据缓冲流中的所有 snmp_varbind 数据结构信息并分别执行指定的钩子回调操作 */
   while (snmp_vb_enumerator_get_next(&inbound_varbind_enumerator, &vb) == SNMP_VB_ENUMERATOR_ERR_OK) {
     snmp_write_callback(vb.oid.id, vb.oid.len, snmp_write_callback_arg);
   }
 }
 
-
 /* ----------------------------------------------------------------------- */
 /* VarBind enumerator methods */
 /* ----------------------------------------------------------------------- */
 
+/*********************************************************************************************************
+** 函数名称: snmp_vb_enumerator_init
+** 功能描述: 根据函数指定的参数初始化指定的 snmp_varbind_enumerator
+** 输	 入: enumerator - 需要初始化的 snmp_varbind_enumerator 结构指针
+**         : p - 指定的 snmp 数据缓冲流 pbuf 指针
+**         : offset - 指定的 snmp 数据缓冲流偏移量
+**         : length - 指定的 snmp 数据缓冲流长度
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 snmp_vb_enumerator_init(struct snmp_varbind_enumerator *enumerator, struct pbuf *p, u16_t offset, u16_t length)
 {
@@ -1857,9 +2327,24 @@ snmp_vb_enumerator_init(struct snmp_varbind_enumerator *enumerator, struct pbuf 
   enumerator->varbind_count = 0;
 }
 
+/* 如果指定的状态 code != ERR_OK 则 snmp_stats.inasnparseerrs++ 并返回 SNMP_VB_ENUMERATOR_ERR_ASN1ERROR 值 */
 #define VB_PARSE_EXEC(code)   PARSE_EXEC(code, SNMP_VB_ENUMERATOR_ERR_ASN1ERROR)
+
+/* 如果指定的状态 cond == 0 则 snmp_stats.inasnparseerrs++ 并返回 SNMP_VB_ENUMERATOR_ERR_ASN1ERROR 值 */
 #define VB_PARSE_ASSERT(code) PARSE_ASSERT(code, SNMP_VB_ENUMERATOR_ERR_ASN1ERROR)
 
+/*********************************************************************************************************
+** 函数名称: snmp_vb_enumerator_get_next
+** 功能描述: 尝试从指定的 snmp_varbind_enumerator 数据缓冲流中解析出一个 snmp_varbind 数据结构信息
+** 注     释: 在   snmp_varbind_enumerator 数据缓冲流中可能连续存在多个 snmp_varbind 数据结构
+** 输	 入: enumerator - 指定的 snmp_varbind_enumerator 数据缓冲流
+**         : varbind - 用来存储解析出的 snmp_varbind 数据结构信息
+** 输	 出: SNMP_VB_ENUMERATOR_ERR_OK - 解析成功
+**         : SNMP_VB_ENUMERATOR_ERR_EOVB - 指定的 snmp_varbind_enumerator 据缓冲流中没有有效数据
+**         : SNMP_VB_ENUMERATOR_ERR_INVALIDLENGTH - 内存错误
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 snmp_vb_enumerator_err_t
 snmp_vb_enumerator_get_next(struct snmp_varbind_enumerator *enumerator, struct snmp_varbind *varbind)
 {
@@ -1873,11 +2358,13 @@ snmp_vb_enumerator_get_next(struct snmp_varbind_enumerator *enumerator, struct s
   enumerator->varbind_count++;
 
   /* decode varbind itself (parent container of a varbind) */
+  /* 从指定的 snmp 数据缓冲流中解析出 variable bind 结构信息 */
   VB_PARSE_EXEC(snmp_asn1_dec_tlv(&(enumerator->pbuf_stream), &tlv));
   VB_PARSE_ASSERT((tlv.type == SNMP_ASN1_TYPE_SEQUENCE) && (tlv.value_len <= enumerator->pbuf_stream.length));
   varbind_len = tlv.value_len;
 
-  /* decode varbind name (object id) */
+  /* decode varbind name (object id) */  
+  /* 从指定的 snmp 数据缓冲流中解析出 varbind->oid 数据信息 */
   VB_PARSE_EXEC(snmp_asn1_dec_tlv(&(enumerator->pbuf_stream), &tlv));
   VB_PARSE_ASSERT((tlv.type == SNMP_ASN1_TYPE_OBJECT_ID) && (SNMP_ASN1_TLV_LENGTH(tlv) < varbind_len) && (tlv.value_len < enumerator->pbuf_stream.length));
 
@@ -1885,11 +2372,13 @@ snmp_vb_enumerator_get_next(struct snmp_varbind_enumerator *enumerator, struct s
   varbind_len -= SNMP_ASN1_TLV_LENGTH(tlv);
 
   /* decode varbind value (object id) */
+  /* 从指定的 snmp 数据缓冲流中解析出 varbind->type 数据信息 */
   VB_PARSE_EXEC(snmp_asn1_dec_tlv(&(enumerator->pbuf_stream), &tlv));
   VB_PARSE_ASSERT((SNMP_ASN1_TLV_LENGTH(tlv) == varbind_len) && (tlv.value_len <= enumerator->pbuf_stream.length));
   varbind->type = tlv.type;
 
   /* shall the value be decoded ? */
+  /* 根据解析出的 varbind->type 数据类型从指定的 snmp 数据缓冲流中解析出 varbind->value 字段数据 */
   if (varbind->value != NULL) {
     switch (varbind->type) {
       case SNMP_ASN1_TYPE_INTEGER:

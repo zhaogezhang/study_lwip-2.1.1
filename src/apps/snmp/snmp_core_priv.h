@@ -44,6 +44,7 @@
 extern "C" {
 #endif
 
+/* 定义了当前协议栈 snmp 协议使用的错误码 */
 /* (outdated) SNMPv1 error codes
  * shall not be used by MIBS anymore, nevertheless required from core for properly answering a v1 request
  */

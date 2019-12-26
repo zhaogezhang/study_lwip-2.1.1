@@ -999,7 +999,8 @@ snmp_get_mib_between(const u32_t *oid1, u8_t oid1_len, const u32_t *oid2, u8_t o
 
 /*********************************************************************************************************
 ** 函数名称: snmp_get_node_instance_from_oid
-** 功能描述: 在当前系统内查找和指定的 snmp oid 匹配的叶子节点并返回这个叶子节点的实例信息
+** 功能描述: 遍历当前系统内所有有效的 mib 列表成员查找和指定的 snmp oid 匹配的叶子节点并
+**         : 返回这个叶子节点的实例信息
 ** 输	 入: oid - 指定的 snmp oid 数据内容
 **         : oid_len - 指定的 snmp oid 数据内容字节长度
 ** 输	 出: node_instance - 查找到的匹配的叶子节点的实例信息
@@ -1065,9 +1066,10 @@ snmp_get_node_instance_from_oid(const u32_t *oid, u8_t oid_len, struct snmp_node
 **         : oid_len - 指定的 snmp oid 数据内容字节长度
 **         : validate_node_instance_method - 用于验证找到到的节点的有效性的函数指针
 **         : validate_node_instance_arg - 用于验证找到到的节点的有效性的函数参数
-**         : node_oid - 查找到的满足条件的节点 snmp oid 信息指针
+** 输	 出: node_oid - 查找到的满足条件的节点 snmp oid 信息指针
 **         : node_instance - 查找到的满足条件的节点实例指针
-** 输	 出: u8_t - 操作结果
+**         : SNMP_ERR_NOERROR - 获取成功
+**         : SNMP_ERR_ENDOFMIBVIEW - 获取失败
 ** 全局变量: 
 ** 调用模块: 
 *********************************************************************************************************/

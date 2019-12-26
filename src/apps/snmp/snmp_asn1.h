@@ -58,6 +58,7 @@ extern "C" {
 #define SNMP_ASN1_DATATYPE_EXTENDED 0x1F /* DataType indicating that datatype is encoded in following bytes */
 
 /* context specific (SNMP) tags (from SNMP spec. RFC1157 and RFC1905) */
+/* 定义了当前 snmp 协议支持的请求数据包类型 */
 #define SNMP_ASN1_CONTEXT_PDU_GET_REQ      0
 #define SNMP_ASN1_CONTEXT_PDU_GET_NEXT_REQ 1
 #define SNMP_ASN1_CONTEXT_PDU_GET_RESP     2
@@ -79,7 +80,7 @@ struct snmp_asn1_tlv {
   /* 表示当前 tlv 结构中 type 字段占用的字节数，这个值通常为 1 */
   u8_t  type_len;   /* encoded length of 'type' field (normally 1) */
 
-  /* 表示当前 tlv 结构中 length 字段最少需要的字节数 */
+  /* 表示当前 tlv 结构中 value_len 字段占用多少字节数 */
   u8_t  length_len; /* indicates how many bytes are required to encode the 'value_len' field */
 
   /* 表示当前 tlv 结构中存储的 value 数据字节数 */
@@ -88,6 +89,8 @@ struct snmp_asn1_tlv {
 
 #define SNMP_ASN1_TLV_HDR_LENGTH(tlv) ((tlv).type_len + (tlv).length_len)
 #define SNMP_ASN1_TLV_LENGTH(tlv) ((tlv).type_len + (tlv).length_len + (tlv).value_len)
+
+/* 根据指定参数初始化指定的 tlv 数据结构 */
 #define SNMP_ASN1_SET_TLV_PARAMS(tlv, type_, length_len_, value_len_) do { (tlv).type = (type_); (tlv).type_len = 0; (tlv).length_len = (length_len_); (tlv).value_len = (value_len_); } while (0);
 
 err_t snmp_asn1_dec_tlv(struct snmp_pbuf_stream *pbuf_stream, struct snmp_asn1_tlv *tlv);

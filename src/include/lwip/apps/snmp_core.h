@@ -76,6 +76,7 @@ extern "C" {
 #define SNMP_ASN1_CONTEXT_VARBIND_NO_SUCH_INSTANCE 1
 
 /* full ASN1 type defines */
+/* 定义了当前系统内支持的所有 asn1 对象数据类型 */
 #define SNMP_ASN1_TYPE_END_OF_CONTENT (SNMP_ASN1_CLASS_UNIVERSAL | SNMP_ASN1_CONTENTTYPE_PRIMITIVE | SNMP_ASN1_UNIVERSAL_END_OF_CONTENT)
 #define SNMP_ASN1_TYPE_INTEGER        (SNMP_ASN1_CLASS_UNIVERSAL | SNMP_ASN1_CONTENTTYPE_PRIMITIVE | SNMP_ASN1_UNIVERSAL_INTEGER)
 #define SNMP_ASN1_TYPE_OCTET_STRING   (SNMP_ASN1_CLASS_UNIVERSAL | SNMP_ASN1_CONTENTTYPE_PRIMITIVE | SNMP_ASN1_UNIVERSAL_OCTET_STRING)
@@ -212,8 +213,11 @@ struct snmp_node_instance
   struct snmp_obj_id instance_oid;
 
   /** ASN type for this object (see snmp_asn1.h for definitions) */
+  /* 表示当前 snmp 实例对象数据类型，例如 SNMP_ASN1_TYPE_INTEGER */
   u8_t asn1_type;
-  /** one out of instance access types defined above (SNMP_NODE_INSTANCE_READ_ONLY,...) */
+  
+  /** one out of instance access types defined above (SNMP_NODE_INSTANCE_READ_ONLY,...) */  
+  /* 表示当前 snmp 实例对象数据的数据访问权限类型，例如 SNMP_NODE_INSTANCE_READ_ONLY */
   snmp_access_t access;
 
   /** returns object value for the given object identifier. Return values <0 to indicate an error */
@@ -345,13 +349,14 @@ err_t snmp_decode_truthvalue(const s32_t *asn1_value, u8_t *bool_value);
 u8_t  snmp_encode_bits(u8_t *buf, u32_t buf_len, u32_t bit_value, u8_t bit_count);
 u8_t  snmp_encode_truthvalue(s32_t *asn1_value, u32_t bool_value);
 
+/* 定义了当前 snmp 系统统计的数据类型 */
 struct snmp_statistics
 {
-  u32_t inpkts;
-  u32_t outpkts;
-  u32_t inbadversions;
-  u32_t inbadcommunitynames;
-  u32_t inbadcommunityuses;
+  u32_t inpkts;              /* 表示接收到的 snmp 数据包数 */
+  u32_t outpkts;             /* 表示发送出的 snmp 数据包数 */
+  u32_t inbadversions;       /* 表示接收到的 snmp 版本不匹配的数据包数 */
+  u32_t inbadcommunitynames; /* 表示接收到的 community 名不匹配的数据包数 */
+  u32_t inbadcommunityuses;  /* 表示接收到的 community 用户不匹配的数据包数 */
   u32_t inasnparseerrs;
   u32_t intoobigs;
   u32_t innosuchnames;

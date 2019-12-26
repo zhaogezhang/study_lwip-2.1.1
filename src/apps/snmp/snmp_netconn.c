@@ -45,6 +45,14 @@
 #include "lwip/prot/iana.h"
 
 /** SNMP netconn API worker thread */
+/*********************************************************************************************************
+** 函数名称: snmp_netconn_thread
+** 功能描述: 表示当前 snmp 协议栈工作在 NETCONN 模式时的工作线程函数
+** 输	 入: arg - 未使用
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static void
 snmp_netconn_thread(void *arg)
 {
@@ -63,6 +71,7 @@ snmp_netconn_thread(void *arg)
 #endif /* LWIP_IPV6 */
   LWIP_ERROR("snmp_netconn: invalid conn", (conn != NULL), return;);
 
+  /* 记录当前 snmp 协议模块使用的 udp 协议控制块指针 */
   snmp_traps_handle = conn;
 
   do {
@@ -78,6 +87,18 @@ snmp_netconn_thread(void *arg)
   } while (1);
 }
 
+/*********************************************************************************************************
+** 函数名称: snmp_sendto
+** 功能描述: 表示当前 snmp 协议栈工作在 NETCONN 模式时的 snmp 数据包发送函数
+** 输	 入: handle - 用来发送 snmp 数据包的 udp 协议控制块指针
+**         : p - 表示需要发送的 snmp 数据包
+**         : dst - 表示目的地 IP 地址
+**         : port - 表示目的地端口号
+** 输	 出: ERR_OK - 发送成功
+**         : others - 发送失败
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 err_t
 snmp_sendto(void *handle, struct pbuf *p, const ip_addr_t *dst, u16_t port)
 {
@@ -91,6 +112,17 @@ snmp_sendto(void *handle, struct pbuf *p, const ip_addr_t *dst, u16_t port)
   return result;
 }
 
+/*********************************************************************************************************
+** 函数名称: snmp_get_local_ip_for_dst
+** 功能描述: 为指定的目的地 IP 地址在当前协议栈中查找一个用于发送这个数据包的网路接口的 IP 地址
+** 输	 入: handle - 指定的 udp 协议控制块
+**         : dst - 指定的目的地 IP 地址
+** 输	 出: 1 - 获取成功
+**         : 0 - 获取失败
+**         : result - 获取到的本地 IP 地址
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 u8_t
 snmp_get_local_ip_for_dst(void *handle, const ip_addr_t *dst, ip_addr_t *result)
 {
@@ -113,6 +145,14 @@ snmp_get_local_ip_for_dst(void *handle, const ip_addr_t *dst, ip_addr_t *result)
 /**
  * Starts SNMP Agent.
  */
+/*********************************************************************************************************
+** 函数名称: snmp_init
+** 功能描述: 初始化 snmp 协议模块，启动 snmp 工作线程
+** 输	 入: 
+** 输	 出: 
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 void
 snmp_init(void)
 {

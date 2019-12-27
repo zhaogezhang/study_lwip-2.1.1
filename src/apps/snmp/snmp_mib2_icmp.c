@@ -44,8 +44,10 @@
 
 #if LWIP_SNMP && SNMP_LWIP_MIB2 && LWIP_ICMP
 
+/* 如果当前 snmp 协议是通过后台线程来处理收发包的，那么需要通过创建同步节点以实现和 TCPIP 线程的同步访问 */
 #if SNMP_USE_NETCONN
 #define SYNC_NODE_NAME(node_name) node_name ## _synced
+/* 通过指定的参数创建一个 snmp 线程同步代理实例叶子节点数据结构 */
 #define CREATE_LWIP_SYNC_NODE(oid, node_name) \
    static const struct snmp_threadsync_node node_name ## _synced = SNMP_CREATE_THREAD_SYNC_NODE(oid, &node_name.node, &snmp_mib2_lwip_locks);
 #else
@@ -55,6 +57,16 @@
 
 /* --- icmp .1.3.6.1.2.1.5 ----------------------------------------------------- */
 
+/*********************************************************************************************************
+** 函数名称: icmp_get_value
+** 功能描述: 获取 mib2 icmp 节点的指定标量数组下指定的标量实例对象值
+** 输	 入: node - 指定的标量数组实例指针
+** 输	 出: value - 用来存储获取到的标量实例对象值
+**         : s16_t - 成功获取的标量实例值字节数
+**         : 0 - 没有指定的标量实例对象
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static s16_t
 icmp_get_value(const struct snmp_scalar_array_node_def *node, void *value)
 {
@@ -147,7 +159,7 @@ icmp_get_value(const struct snmp_scalar_array_node_def *node, void *value)
   return 0;
 }
 
-
+/* 定义了 mib2 树形结构下的 icmp 根节点下的标量数组子节点列表 */
 static const struct snmp_scalar_array_node_def icmp_nodes[] = {
   { 1, SNMP_ASN1_TYPE_COUNTER, SNMP_NODE_INSTANCE_READ_ONLY},
   { 2, SNMP_ASN1_TYPE_COUNTER, SNMP_NODE_INSTANCE_READ_ONLY},
@@ -177,6 +189,7 @@ static const struct snmp_scalar_array_node_def icmp_nodes[] = {
   {26, SNMP_ASN1_TYPE_COUNTER, SNMP_NODE_INSTANCE_READ_ONLY}
 };
 
+/* 通过指定的参数创建一个 snmp 标量数组实例节点数据结构 */
 const struct snmp_scalar_array_node snmp_mib2_icmp_root = SNMP_SCALAR_CREATE_ARRAY_NODE(5, icmp_nodes, icmp_get_value, NULL, NULL);
 
 #endif /* LWIP_SNMP && SNMP_LWIP_MIB2 && LWIP_ICMP */

@@ -1020,8 +1020,8 @@ snmp_get_node_instance_from_oid(const u32_t *oid, u8_t oid_len, struct snmp_node
   if (mib != NULL) {
     u8_t oid_instance_len;
 
-    /* 以指定的 mib 根节点为起点遍历查找和指定的 snmp oid 匹配的树节点并返回这个节点指针以及
-     * 这个节点的 snmp oid 数据的字节长度 */
+    /* 以指定的 mib 根节点为起点依次向下遍历查找和指定的 snmp oid 匹配的树节点并返回这个节点指针
+       以及这个节点的 snmp oid 数据的字节长度 */
     mn = snmp_mib_tree_resolve_exact(mib, oid, oid_len, &oid_instance_len);
   
     if ((mn != NULL) && (mn->node_type != SNMP_NODE_TREE)) {
@@ -1104,8 +1104,8 @@ snmp_get_next_node_instance_from_oid(const u32_t *oid, u8_t oid_len, snmp_valida
     u8_t oid_instance_len;
 
     /* check if OID directly references a node inside current MIB, in this case we have to ask this node for the next instance */
-    /* 以指定的 mib 根节点为起点遍历查找和指定的 snmp oid 匹配的树节点并返回这个节点指针以及
-     * 这个节点的 snmp oid 数据的字节长度 */
+    /* 以指定的 mib 根节点为起点依次向下遍历查找和指定的 snmp oid 匹配的树节点并返回这个节点指针
+       以及这个节点的 snmp oid 数据的字节长度 */
     mn = snmp_mib_tree_resolve_exact(mib, start_oid, start_oid_len, &oid_instance_len);
     if (mn != NULL) {
 	  /* 如果找到了和指定的 snmp oid 匹配的树形节点，则保存这个树形节点信息到指定变量中（node_oid/node_instance）*/
@@ -1278,8 +1278,8 @@ snmp_get_next_node_instance_from_oid(const u32_t *oid, u8_t oid_len, snmp_valida
  */
 /*********************************************************************************************************
 ** 函数名称: snmp_mib_tree_resolve_exact
-** 功能描述: 以指定的 mib 根节点为起点遍历查找和指定的 snmp oid 匹配的树节点并返回这个节点指针以及
-**         : 这个节点的 snmp oid 数据的字节长度
+** 功能描述: 以指定的 mib 根节点为起点依次向下遍历查找和指定的 snmp oid 匹配的树节点并返回这个节点指针
+**         : 以及这个节点的 snmp oid 数据的字节长度
 ** 输	 入: mib - 需要遍历的 snmp 树形结构中的 mib 节点指针
 **         : oid - 需要匹配的 snmp oid 数据内容
 **         : oid_len - 需要匹配的 snmp oid 数据内容字节长度
@@ -1295,6 +1295,7 @@ snmp_mib_tree_resolve_exact(const struct snmp_mib *mib, const u32_t *oid, u8_t o
   const struct snmp_node *const *node = &mib->root_node;
   u8_t oid_offset = mib->base_oid_len;
 
+  /* 从指定的 mib 根节点依次向下遍历，直到遍历到指定的叶子节点 */
   while ((oid_offset < oid_len) && ((*node)->node_type == SNMP_NODE_TREE)) {
     /* search for matching sub node */
     u32_t subnode_oid = *(oid + oid_offset);

@@ -52,7 +52,9 @@ extern "C" {
 struct snmp_scalar_node
 {
   /** inherited "base class" members */
+  /* 为了实现基类继承功能，这个表示叶子节点的数据结构必须放在当前结构体的开始位置 */
   struct snmp_leaf_node node;
+
   u8_t asn1_type;
   snmp_access_t access;
   node_instance_get_value_method get_value;
@@ -91,6 +93,7 @@ typedef snmp_err_t (*snmp_scalar_array_set_value_method)(const struct snmp_scala
 struct snmp_scalar_array_node
 {
   /** inherited "base class" members */
+  /* 为了实现基类继承功能，这个表示叶子节点的数据结构必须放在当前结构体的开始位置 */
   struct snmp_leaf_node node;
 
   /* 表示当前标量数组节点下包含的标量节点个数 */

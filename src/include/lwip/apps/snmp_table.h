@@ -61,6 +61,7 @@ struct snmp_table_col_def
 struct snmp_table_node
 {
   /** inherited "base class" members */
+  /* 为了实现基类继承功能，这个表示叶子节点的数据结构必须放在当前结构体的开始位置 */
   struct snmp_leaf_node node;
 
   /* 表示当前 snmp 表格实例中包含的列数 */
@@ -117,6 +118,7 @@ struct snmp_table_simple_col_def
 struct snmp_table_simple_node
 {
   /* inherited "base class" members */
+  /* 为了实现基类继承功能，这个表示叶子节点的数据结构必须放在当前结构体的开始位置 */
   struct snmp_leaf_node node;
   
   /* 表示当前 snmp 简单表格实例中包含的列数 */

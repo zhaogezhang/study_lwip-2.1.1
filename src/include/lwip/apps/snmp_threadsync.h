@@ -87,6 +87,7 @@ struct snmp_threadsync_instance
 struct snmp_threadsync_node
 {
   /* inherited "base class" members */
+  /* 为了实现基类继承功能，这个表示叶子节点的数据结构必须放在当前结构体的开始位置 */
   struct snmp_leaf_node           node;
 
   const struct snmp_leaf_node     *target;

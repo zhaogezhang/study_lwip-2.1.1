@@ -46,8 +46,10 @@
 
 #if LWIP_SNMP && SNMP_LWIP_MIB2 && LWIP_UDP
 
+/* 如果当前 snmp 协议是通过后台线程来处理收发包的，那么需要通过创建同步节点以实现和 TCPIP 线程的同步访问 */
 #if SNMP_USE_NETCONN
 #define SYNC_NODE_NAME(node_name) node_name ## _synced
+/* 通过指定的参数创建一个 snmp 线程同步代理实例叶子节点数据结构 */
 #define CREATE_LWIP_SYNC_NODE(oid, node_name) \
    static const struct snmp_threadsync_node node_name ## _synced = SNMP_CREATE_THREAD_SYNC_NODE(oid, &node_name.node, &snmp_mib2_lwip_locks);
 #else
@@ -57,6 +59,16 @@
 
 /* --- udp .1.3.6.1.2.1.7 ----------------------------------------------------- */
 
+/*********************************************************************************************************
+** 函数名称: udp_get_value
+** 功能描述: 获取 mib2 udp 节点中指定的标量实例对象值
+** 输	 入: instance - 指定的标量实例指针
+** 输	 出: value - 用来存储获取到的标量实例对象值
+**         : s16_t - 成功获取的标量实例值字节数
+**         : 0 - 没有指定的标量实例对象
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static s16_t
 udp_get_value(struct snmp_node_instance *instance, void *value)
 {
@@ -99,6 +111,16 @@ udp_get_value(struct snmp_node_instance *instance, void *value)
 
 /* --- udpEndpointTable --- */
 
+/*********************************************************************************************************
+** 函数名称: udp_endpointTable_get_cell_value_core
+** 功能描述: 获取 mib2 udp 节点的 endpointTable 的指定列索引值的实例对象值
+** 输	 入: column - 指定的 endpointTable 实例列索引值
+** 输	 出: value - 用来存储获取到的 endpointTable 实例对象值
+**         : SNMP_ERR_NOERROR - 成功获取的 endpointTable 实例值字节数
+**         : SNMP_ERR_NOSUCHINSTANCE - 没有指定的 endpointTable 实例对象
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static snmp_err_t
 udp_endpointTable_get_cell_value_core(const u32_t *column, union snmp_variant_value *value)
 {
@@ -114,6 +136,19 @@ udp_endpointTable_get_cell_value_core(const u32_t *column, union snmp_variant_va
   return SNMP_ERR_NOERROR;
 }
 
+/*********************************************************************************************************
+** 函数名称: udp_endpointTable_get_cell_value
+** 功能描述: 获取 mib2 udp 节点的 endpointTable 的指定行 oid 和指定列索引值的实例对象值
+** 输	 入: column - 指定的 endpointTable 实例列索引值
+**         : row_oid - 指定的 endpointTable 实例行 oid 数据
+**         : row_oid_len - 指定的 endpointTable 实例行 oid 数据长度
+** 输	 出: value - 用来存储获取到的 endpointTable 实例对象值数据
+**         : value_len - 未使用
+**         : SNMP_ERR_NOERROR - 成功获取的 endpointTable 实例值字节数
+**         : SNMP_ERR_NOSUCHINSTANCE - 没有指定的 endpointTable 实例对象
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static snmp_err_t
 udp_endpointTable_get_cell_value(const u32_t *column, const u32_t *row_oid, u8_t row_oid_len, union snmp_variant_value *value, u32_t *value_len)
 {
@@ -125,12 +160,14 @@ udp_endpointTable_get_cell_value(const u32_t *column, const u32_t *row_oid, u8_t
   LWIP_UNUSED_ARG(value_len);
 
   /* udpEndpointLocalAddressType + udpEndpointLocalAddress + udpEndpointLocalPort */
+  /* 从指定的 snmp row_oid 信息中解析出与其对应的 local IPv4/IPv6 地址信息 */
   idx += snmp_oid_to_ip_port(&row_oid[idx], row_oid_len - idx, &local_ip, &local_port);
   if (idx == 0) {
     return SNMP_ERR_NOSUCHINSTANCE;
   }
 
-  /* udpEndpointRemoteAddressType + udpEndpointRemoteAddress + udpEndpointRemotePort */
+  /* udpEndpointRemoteAddressType + udpEndpointRemoteAddress + udpEndpointRemotePort */  
+  /* 从指定的 snmp row_oid 信息中解析出与其对应的 remote IPv4/IPv6 地址信息 */
   idx += snmp_oid_to_ip_port(&row_oid[idx], row_oid_len - idx, &remote_ip, &remote_port);
   if (idx == 0) {
     return SNMP_ERR_NOSUCHINSTANCE;
@@ -144,14 +181,20 @@ udp_endpointTable_get_cell_value(const u32_t *column, const u32_t *row_oid, u8_t
     return SNMP_ERR_NOSUCHINSTANCE;
   }
 
-  /* find udp_pcb with requested ip and port*/
+  /* find udp_pcb with requested ip and port*/  
+  /* 多文件全局变量，通过单链表的方式把系统内所有 udp 连接的控制块信息链接起来
+   * 需要注意的是，这个链表只包含那些已经绑定了 IP 地址和端口号的 udp 协议控制块 */
   pcb = udp_pcbs;
+
+  /* 判断当前 udp_pcbs 链表上是否有和指定的地址信息匹配的 udp 协议控制块 */
   while (pcb != NULL) {
     if (ip_addr_cmp(&local_ip, &pcb->local_ip) &&
         (local_port == pcb->local_port) &&
         ip_addr_cmp(&remote_ip, &pcb->remote_ip) &&
         (remote_port == pcb->remote_port)) {
+        
       /* fill in object properties */
+      /* 获取 mib2 udp 节点的 endpointTable 的指定列索引值的实例对象值 */
       return udp_endpointTable_get_cell_value_core(column, value);
     }
     pcb = pcb->next;
@@ -161,6 +204,20 @@ udp_endpointTable_get_cell_value(const u32_t *column, const u32_t *row_oid, u8_t
   return SNMP_ERR_NOSUCHINSTANCE;
 }
 
+/*********************************************************************************************************
+** 函数名称: udp_endpointTable_get_next_cell_instance_and_value
+** 功能描述: 获取 mib2 udp 节点的 endpointTable 的指定行 oid 和指定列索引值的实例对象的下一个对象的值
+** 输	 入: column - 指定的 endpointTable 实例列索引值
+**         : row_oid - 指定的 endpointTable 实例行 oid 数据
+**         : row_oid_len - 指定的 endpointTable 实例行 oid 数据长度
+** 输	 出: row_oid - 存储成功获取到的和指定的 oid 最接近的下一个实例对象的 oid 数据信息
+**         : value - 用来存储获取到的 endpointTable 实例对象的下一个对象的值
+**         : value_len - 未使用
+**         : SNMP_ERR_NOERROR - 成功获取的 endpointTable 实例值字节数
+**         : SNMP_ERR_NOSUCHINSTANCE - 没有指定的 endpointTable 实例对象
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static snmp_err_t
 udp_endpointTable_get_next_cell_instance_and_value(const u32_t *column, struct snmp_obj_id *row_oid, union snmp_variant_value *value, u32_t *value_len)
 {
@@ -175,30 +232,42 @@ udp_endpointTable_get_next_cell_instance_and_value(const u32_t *column, struct s
   LWIP_UNUSED_ARG(value_len);
 
   /* init struct to search next oid */
+  /* 根据函数指定的 row_oid 数据初始化指定的 snmp next oid state 结构体 */
   snmp_next_oid_init(&state, row_oid->id, row_oid->len, result_temp, LWIP_ARRAYSIZE(result_temp));
 
   /* iterate over all possible OIDs to find the next one */
+  /* 多文件全局变量，通过单链表的方式把系统内所有 udp 连接的控制块信息链接起来
+   * 需要注意的是，这个链表只包含那些已经绑定了 IP 地址和端口号的 udp 协议控制块 */
   pcb = udp_pcbs;
+
+  /* 遍历当前系统内所有的 udp 连接控制块并根据这些连接控制块信息构建最终的 snmp_next_oid_state 数据结构
+     最终的 snmp_next_oid_state 结构中的 next_oid 表示的是当前系统内和指定的 row_oid 最接近的实例 */
   while (pcb != NULL) {
+  	
     u32_t test_oid[LWIP_ARRAYSIZE(result_temp)];
     u8_t idx = 0;
 
     /* udpEndpointLocalAddressType + udpEndpointLocalAddress + udpEndpointLocalPort */
+	/* 把指定的 local IPv4/IPv6 地址转换成与其对应的 snmp oid */
     idx += snmp_ip_port_to_oid(&pcb->local_ip, pcb->local_port, &test_oid[idx]);
 
-    /* udpEndpointRemoteAddressType + udpEndpointRemoteAddress + udpEndpointRemotePort */
+    /* udpEndpointRemoteAddressType + udpEndpointRemoteAddress + udpEndpointRemotePort */	
+	/* 把指定的 remote IPv4/IPv6 地址转换成与其对应的 snmp oid */
     idx += snmp_ip_port_to_oid(&pcb->remote_ip, pcb->remote_port, &test_oid[idx]);
 
     test_oid[idx] = 0; /* udpEndpointInstance */
     idx++;
 
     /* check generated OID: is it a candidate for the next one? */
+	/* 校验指定的 snmp oid 是否在指定的 next oid state 结构表示的范围之内，如果在则更新这个
+       next oid state 结构的 next_oid 字段为指定的 snmp oid 来实现缩小 next oid state 范围的功能 */
     snmp_next_oid_check(&state, test_oid, idx, NULL);
 
     pcb = pcb->next;
   }
 
   /* did we find a next one? */
+  /* 如果成功获取到和指定 oid 最接近的下一个实例对象的信息，则返回这个实例信息的 oid 信息和指定列对象的数值 */
   if (state.status == SNMP_NEXT_OID_STATUS_SUCCESS) {
     snmp_oid_assign(row_oid, state.next_oid, state.next_oid_len);
     /* fill in object properties */
@@ -222,6 +291,18 @@ static const struct snmp_oid_range udp_Table_oid_ranges[] = {
   { 1, 0xffff }  /* Port        */
 };
 
+/*********************************************************************************************************
+** 函数名称: udp_Table_get_cell_value_core
+** 功能描述: 获取 mib2 udp 节点下的指定的 udp 协议控制块的 Table 的指定列索引值的实例对象值
+** 输	 入: pcb - 指定的 udp 协议控制块指针
+**         : column - 指定的 Table 实例列索引值
+**         : value_len - 未使用
+** 输	 出: value - 用来存储获取到的 Table 实例对象值
+**         : SNMP_ERR_NOERROR - 成功获取的 Table 实例值字节数
+**         : SNMP_ERR_NOSUCHINSTANCE - 没有指定的 Table 实例对象
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static snmp_err_t
 udp_Table_get_cell_value_core(struct udp_pcb *pcb, const u32_t *column, union snmp_variant_value *value, u32_t *value_len)
 {
@@ -243,6 +324,19 @@ udp_Table_get_cell_value_core(struct udp_pcb *pcb, const u32_t *column, union sn
   return SNMP_ERR_NOERROR;
 }
 
+/*********************************************************************************************************
+** 函数名称: udp_Table_get_cell_value
+** 功能描述: 获取 mib2 udp 节点的 Table 的指定行 oid 和指定列索引值的实例对象值
+** 输	 入: column - 指定的 Table 实例列索引值
+**         : row_oid - 指定的 Table 实例行 oid 数据
+**         : row_oid_len - 指定的 Table 实例行 oid 数据长度
+** 输	 出: value - 用来存储获取到的 Table 实例对象值数据
+**         : value_len - 未使用
+**         : SNMP_ERR_NOERROR - 成功获取的 Table 实例值字节数
+**         : SNMP_ERR_NOSUCHINSTANCE - 没有指定的 Table 实例对象
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static snmp_err_t
 udp_Table_get_cell_value(const u32_t *column, const u32_t *row_oid, u8_t row_oid_len, union snmp_variant_value *value, u32_t *value_len)
 {
@@ -251,21 +345,29 @@ udp_Table_get_cell_value(const u32_t *column, const u32_t *row_oid, u8_t row_oid
   struct udp_pcb *pcb;
 
   /* check if incoming OID length and if values are in plausible range */
+  /* 校验输入的 oid 数据长度和表示范围是否合法 */
   if (!snmp_oid_in_range(row_oid, row_oid_len, udp_Table_oid_ranges, LWIP_ARRAYSIZE(udp_Table_oid_ranges))) {
     return SNMP_ERR_NOSUCHINSTANCE;
   }
 
-  /* get IP and port from incoming OID */
+  /* get IP and port from incoming OID */  
+  /* 从指定的 snmp row_oid 信息中解析出与其对应的 IPv4 地址信息和端口信息 */
   snmp_oid_to_ip4(&row_oid[0], &ip); /* we know it succeeds because of oid_in_range check above */
   port = (u16_t)row_oid[4];
 
-  /* find udp_pcb with requested ip and port*/
+  /* find udp_pcb with requested ip and port*/  
+  /* 多文件全局变量，通过单链表的方式把系统内所有 udp 连接的控制块信息链接起来
+   * 需要注意的是，这个链表只包含那些已经绑定了 IP 地址和端口号的 udp 协议控制块 */
   pcb = udp_pcbs;
+
+  /* 判断当前 udp_pcbs 链表上是否有和指定的地址信息匹配的 udp 协议控制块 */  
   while (pcb != NULL) {
     if (IP_IS_V4_VAL(pcb->local_ip)) {
       if (ip4_addr_cmp(&ip, ip_2_ip4(&pcb->local_ip)) && (port == pcb->local_port)) {
+	  	
         /* fill in object properties */
-        return udp_Table_get_cell_value_core(pcb, column, value, value_len);
+        /* 获取 mib2 udp 节点下的指定的 udp 协议控制块的 Table 的指定列索引值的实例对象值 */
+		return udp_Table_get_cell_value_core(pcb, column, value, value_len);
       }
     }
     pcb = pcb->next;
@@ -275,6 +377,19 @@ udp_Table_get_cell_value(const u32_t *column, const u32_t *row_oid, u8_t row_oid
   return SNMP_ERR_NOSUCHINSTANCE;
 }
 
+/*********************************************************************************************************
+** 函数名称: udp_Table_get_next_cell_instance_and_value
+** 功能描述: 获取 mib2 udp 节点的 Table 的指定行 oid 和指定列索引值的实例对象的下一个对象的值
+** 输	 入: column - 指定的 Table 实例列索引值
+**         : row_oid - 指定的 Table 实例行 oid 数据
+** 输	 出: row_oid - 存储成功获取到的和指定的 oid 最接近的下一个实例对象的 oid 数据信息
+**         : value - 用来存储获取到的 Table 实例对象的下一个对象的值
+**         : value_len - 未使用
+**         : SNMP_ERR_NOERROR - 成功获取的 Table 实例值字节数
+**         : SNMP_ERR_NOSUCHINSTANCE - 没有指定的 Table 实例对象
+** 全局变量: 
+** 调用模块: 
+*********************************************************************************************************/
 static snmp_err_t
 udp_Table_get_next_cell_instance_and_value(const u32_t *column, struct snmp_obj_id *row_oid, union snmp_variant_value *value, u32_t *value_len)
 {
@@ -282,26 +397,37 @@ udp_Table_get_next_cell_instance_and_value(const u32_t *column, struct snmp_obj_
   struct snmp_next_oid_state state;
   u32_t  result_temp[LWIP_ARRAYSIZE(udp_Table_oid_ranges)];
 
-  /* init struct to search next oid */
+  /* init struct to search next oid */  
+  /* 根据函数指定的 row_oid 数据初始化指定的 snmp next oid state 结构体 */
   snmp_next_oid_init(&state, row_oid->id, row_oid->len, result_temp, LWIP_ARRAYSIZE(udp_Table_oid_ranges));
 
-  /* iterate over all possible OIDs to find the next one */
+  /* iterate over all possible OIDs to find the next one */  
+  /* 多文件全局变量，通过单链表的方式把系统内所有 udp 连接的控制块信息链接起来
+   * 需要注意的是，这个链表只包含那些已经绑定了 IP 地址和端口号的 udp 协议控制块 */
   pcb = udp_pcbs;
+  
+  /* 遍历当前系统内所有的 udp 连接控制块并根据这些连接控制块信息构建最终的 snmp_next_oid_state 数据结构
+     最终的 snmp_next_oid_state 结构中的 next_oid 表示的是当前系统内和指定的 row_oid 最接近的实例 */
   while (pcb != NULL) {
+  	
     u32_t test_oid[LWIP_ARRAYSIZE(udp_Table_oid_ranges)];
 
     if (IP_IS_V4_VAL(pcb->local_ip)) {
+	  /* 把指定的 IPv4 地址和端口号转换成与其对应的 snmp oid 并存储到 test_oid 中 */
       snmp_ip4_to_oid(ip_2_ip4(&pcb->local_ip), &test_oid[0]);
       test_oid[4] = pcb->local_port;
 
-      /* check generated OID: is it a candidate for the next one? */
+      /* check generated OID: is it a candidate for the next one? */	  
+	  /* 校验指定的 snmp oid 是否在指定的 next oid state 结构表示的范围之内，如果在则更新这个
+		 next oid state 结构的 next_oid 字段为指定的 snmp oid 来实现缩小 next oid state 范围的功能 */
       snmp_next_oid_check(&state, test_oid, LWIP_ARRAYSIZE(udp_Table_oid_ranges), pcb);
     }
 
     pcb = pcb->next;
   }
 
-  /* did we find a next one? */
+  /* did we find a next one? */  
+  /* 如果成功获取到和指定 oid 最接近的下一个实例对象的信息，则返回这个实例信息的 oid 信息和指定列对象的数值 */
   if (state.status == SNMP_NEXT_OID_STATUS_SUCCESS) {
     snmp_oid_assign(row_oid, state.next_oid, state.next_oid_len);
     /* fill in object properties */
@@ -325,21 +451,27 @@ static const struct snmp_scalar_node udp_HCOutDatagrams = SNMP_SCALAR_CREATE_NOD
 #endif
 
 #if LWIP_IPV4
+/* 初始化指定的简单表格实例的列属性信息 */
 static const struct snmp_table_simple_col_def udp_Table_columns[] = {
   { 1, SNMP_ASN1_TYPE_IPADDR,  SNMP_VARIANT_VALUE_TYPE_U32 }, /* udpLocalAddress */
   { 2, SNMP_ASN1_TYPE_INTEGER, SNMP_VARIANT_VALUE_TYPE_U32 }  /* udpLocalPort */
 };
+
+/* 初始化一个简单表格节点实例 */
 static const struct snmp_table_simple_node udp_Table = SNMP_TABLE_CREATE_SIMPLE(5, udp_Table_columns, udp_Table_get_cell_value, udp_Table_get_next_cell_instance_and_value);
 #endif /* LWIP_IPV4 */
 
+/* 初始化指定的简单表格实例的列属性信息 */
 static const struct snmp_table_simple_col_def udp_endpointTable_columns[] = {
   /* all items except udpEndpointProcess are declared as not-accessible */
   { 8, SNMP_ASN1_TYPE_UNSIGNED32, SNMP_VARIANT_VALUE_TYPE_U32 }  /* udpEndpointProcess */
 };
 
+/* 初始化一个简单表格节点实例 */
 static const struct snmp_table_simple_node udp_endpointTable = SNMP_TABLE_CREATE_SIMPLE(7, udp_endpointTable_columns, udp_endpointTable_get_cell_value, udp_endpointTable_get_next_cell_instance_and_value);
 
 /* the following nodes access variables in LWIP stack from SNMP worker thread and must therefore be synced to LWIP (TCPIP) thread */
+/* 因为下面的这些节点变量的访问操作是在 SNMP worker 线程中执行的，所以为了安全，必须加锁以实现和 TCPIP 线程的同步操作 */
 CREATE_LWIP_SYNC_NODE(1, udp_inDatagrams)
 CREATE_LWIP_SYNC_NODE(2, udp_noPorts)
 CREATE_LWIP_SYNC_NODE(3, udp_inErrors)
@@ -353,6 +485,7 @@ CREATE_LWIP_SYNC_NODE(8, udp_HCInDatagrams)
 CREATE_LWIP_SYNC_NODE(9, udp_HCOutDatagrams)
 #endif
 
+/* 定义了 mib2 树形结构下的 udp 根节点下的子节点列表 */
 static const struct snmp_node *const udp_nodes[] = {
   &SYNC_NODE_NAME(udp_inDatagrams).node.node,
   &SYNC_NODE_NAME(udp_noPorts).node.node,
@@ -369,5 +502,7 @@ static const struct snmp_node *const udp_nodes[] = {
 #endif
 };
 
+/* 根据指定的参数创建一个 snmp 树形结构中“包含”子节点的树节点 */
 const struct snmp_tree_node snmp_mib2_udp_root = SNMP_CREATE_TREE_NODE(7, udp_nodes);
+
 #endif /* LWIP_SNMP && SNMP_LWIP_MIB2 && LWIP_UDP */

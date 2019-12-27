@@ -162,12 +162,12 @@ SNMP MIB node types
  This cannot be an enum because users may want to define their own node types.
 */
 /* 定义了当前系统内 snmp 协议中支持的节点类型，我们可以根据需要添加自定义节点类型 */
-#define SNMP_NODE_TREE         0x00
+#define SNMP_NODE_TREE         0x00  /* 表示是一个包含子节点的树形节点 */
 /* predefined leaf node types */
-#define SNMP_NODE_SCALAR       0x01
-#define SNMP_NODE_SCALAR_ARRAY 0x02
-#define SNMP_NODE_TABLE        0x03
-#define SNMP_NODE_THREADSYNC   0x04
+#define SNMP_NODE_SCALAR       0x01  /* 表示是一个标量叶子节点 */
+#define SNMP_NODE_SCALAR_ARRAY 0x02  /* 表示子节点都是标量节点的标量数组叶子节点 */
+#define SNMP_NODE_TABLE        0x03  /* 表示是一个表格叶子节点 */
+#define SNMP_NODE_THREADSYNC   0x04  /* 表示是一个线程同步代理叶子节点 */
 
 /** node "base class" layout, the mandatory fields for a node  */
 /* 表示 snmp 树形结构中的一个节点成员基本信息 */
@@ -204,7 +204,7 @@ typedef void (*node_instance_release_method)(struct snmp_node_instance*);
 struct snmp_node_instance
 {
   /** prefilled with the node, get_instance() is called on; may be changed by user to any value to pass an arbitrary node between calls to get_instance() and get_value/test_value/set_value */
-  /* 在调用 get_instance 方法前可以被设置成任何类型数据结构指针用来传递节点数据参数 */
+  /* 在调用 get_instance 方法前可以被设置成任何类型数据结构指针用来传递节点数据结构指针 */
   const struct snmp_node* node;
   
   /** prefilled with the instance id requested; for get_instance() this is the exact oid requested; for get_next_instance() this is the relative starting point, stack expects relative oid of next node here */
@@ -278,6 +278,7 @@ struct snmp_mib
   const struct snmp_node *root_node;  /* 当前 mib 节点下的根节点指针 */
 };
 
+/* 根据指定的参数创建一个 snmp 树形结构中的 mib 层级的根节点 */
 #define SNMP_MIB_CREATE(oid_list, root_node) { (oid_list), (u8_t)LWIP_ARRAYSIZE(oid_list), root_node }
 
 /** OID range structure */

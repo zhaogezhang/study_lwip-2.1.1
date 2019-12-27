@@ -44,6 +44,7 @@
 /*********************************************************************************************************
 ** 函数名称: call_synced_function
 ** 功能描述: 同步的执行指定的函数指针
+** 注     释: 在调用这个函数之前，线程同步代理的运行时数据需要初始化完成
 ** 输	 入: call_data - 表示线程同步代理的运行时数据指针
 **         : fn - 需要同步执行的函数指针
 ** 输	 出: 
@@ -66,7 +67,9 @@ call_synced_function(struct threadsync_data *call_data, snmp_threadsync_called_f
 
 /*********************************************************************************************************
 ** 函数名称: threadsync_get_value_synced
-** 功能描述: 在线程同步代理环境下同步的获取指定的代理实例的值
+** 功能描述: 尝试在线程同步代理环境下同步的执行指定的代理实例的 proxy_instance.get_value 函数
+**         : 读取这个实例对象的值
+** 注     释: 在调用这个函数之前，线程同步代理的运行时数据需要初始化完成
 ** 输	 入: ctx - 表示线程同步代理的运行时数据指针
 ** 输	 出: 
 ** 全局变量: 
@@ -89,7 +92,8 @@ threadsync_get_value_synced(void *ctx)
 
 /*********************************************************************************************************
 ** 函数名称: threadsync_get_value
-** 功能描述: 通过线程同步代理同步的获取指定的代理实例的值
+** 功能描述: 尝试通过线程同步代理实例的 proxy_instance.get_value 函数同步的读取这个代理实例对象的值
+** 注     释: 在调用这个函数之前，线程同步代理的运行时数据需要初始化完成
 ** 输	 入: instance - 需要被代理的实例指针
 **         : value - 用来存储成功获取到的值
 ** 输	 出: call_data->retval.s16 - 操作状态
@@ -109,7 +113,9 @@ threadsync_get_value(struct snmp_node_instance *instance, void *value)
 
 /*********************************************************************************************************
 ** 函数名称: threadsync_set_test_synced
-** 功能描述: 在线程同步代理环境下同步的对指定的代理实例对象执行设置测试操作
+** 功能描述: 尝试在线程同步代理环境下同步的执行指定的代理实例的 proxy_instance.set_test 函数
+**         : 测试设置代理实例对象值操作是否合法
+** 注     释: 在调用这个函数之前，线程同步代理的运行时数据需要初始化完成
 ** 输	 入: ctx - 表示线程同步代理的运行时数据指针
 ** 输	 出: 
 ** 全局变量: 
@@ -132,7 +138,9 @@ threadsync_set_test_synced(void *ctx)
 
 /*********************************************************************************************************
 ** 函数名称: threadsync_set_test
-** 功能描述: 通过线程同步代理同步的对指定的代理实例对象执行设置测试操作
+** 功能描述: 尝试通过线程同步代理实例的 proxy_instance.set_test 函数同步的测试设置代理实例对象值
+**         : 操作是否合法
+** 注     释: 在调用这个函数之前，线程同步代理的运行时数据需要初始化完成
 ** 输	 入: instance - 需要被代理的实例指针
 **         : len - 需要设置的值长度
 **         : value - 需要设置的值
@@ -154,7 +162,9 @@ threadsync_set_test(struct snmp_node_instance *instance, u16_t len, void *value)
 
 /*********************************************************************************************************
 ** 函数名称: threadsync_set_value_synced
-** 功能描述: 在线程同步代理环境下同步的设置指定的代理实例对象的值
+** 功能描述: 尝试在线程同步代理环境下同步的执行指定的代理实例的 proxy_instance.set_value 函数
+**         : 设置代理实例对象值
+** 注     释: 在调用这个函数之前，线程同步代理的运行时数据需要初始化完成
 ** 输	 入: ctx - 表示线程同步代理的运行时数据指针
 ** 输	 出: 
 ** 全局变量: 
@@ -177,7 +187,8 @@ threadsync_set_value_synced(void *ctx)
 
 /*********************************************************************************************************
 ** 函数名称: threadsync_set_value
-** 功能描述: 通过线程同步代理同步的设置指定的代理实例对象的值
+** 功能描述: 尝试通过线程同步代理实例的 proxy_instance.set_value 函数同步的设置代理实例对象值
+** 注     释: 在调用这个函数之前，线程同步代理的运行时数据需要初始化完成
 ** 输	 入: instance - 需要被代理的实例指针
 **         : len - 需要设置的值长度
 **         : value - 需要设置的值
@@ -199,7 +210,9 @@ threadsync_set_value(struct snmp_node_instance *instance, u16_t len, void *value
 
 /*********************************************************************************************************
 ** 函数名称: threadsync_release_instance_synced
-** 功能描述: 在线程同步代理环境下同步的释放指定的代理实例对象
+** 功能描述: 尝试在线程同步代理环境下同步的执行指定的代理实例的 proxy_instance.release_instance 函数
+**         : 释放指定的代理实例对象
+** 注     释: 在调用这个函数之前，线程同步代理的运行时数据需要初始化完成
 ** 输	 入: ctx - 表示线程同步代理的运行时数据指针
 ** 输	 出: 
 ** 全局变量: 
@@ -218,7 +231,8 @@ threadsync_release_instance_synced(void *ctx)
 
 /*********************************************************************************************************
 ** 函数名称: threadsync_release_instance
-** 功能描述: 通过线程同步代理同步的释放指定的代理实例对象
+** 功能描述: 尝试通过线程同步代理实例的 proxy_instance.release_instance 函数同步的释放代理实例对象
+** 注     释: 在调用这个函数之前，线程同步代理的运行时数据需要初始化完成
 ** 输	 入: instance - 需要释放的代理实例指针
 ** 输	 出: 
 ** 全局变量: 
@@ -236,7 +250,9 @@ threadsync_release_instance(struct snmp_node_instance *instance)
 
 /*********************************************************************************************************
 ** 函数名称: get_instance_synced
-** 功能描述: 通过线程同步代理同步的获取指定的代理实例对象
+** 功能描述: 尝试在线程同步代理环境下同步的执行指定的代理实例的 proxy_instance.node.get_instance 函数
+**         : 获取指定的代理实例对象并把实例对象数据存储到 call_data->proxy_instance 中
+** 注     释: 在调用这个函数之前，线程同步代理的运行时数据需要初始化完成
 ** 输	 入: instance - 需要释放的代理实例指针
 ** 输	 出: 
 ** 全局变量: 
@@ -256,7 +272,9 @@ get_instance_synced(void *ctx)
 
 /*********************************************************************************************************
 ** 函数名称: get_instance_synced
-** 功能描述: 通过线程同步代理同步的获取指定的代理实例对象的下一个代理实例对象
+** 功能描述: 尝试在线程同步代理环境下同步的执行指定的代理实例的 proxy_instance.node.get_next_instance
+**         : 函数获取指定的代理实例对象并把实例对象数据存储到 call_data->proxy_instance 中
+** 注     释: 在调用这个函数之前，线程同步代理的运行时数据需要初始化完成
 ** 输	 入: ctx - 表示线程同步代理的运行时数据指针
 ** 输	 出: 
 ** 全局变量: 
@@ -299,6 +317,7 @@ do_sync(const u32_t *root_oid, u8_t root_oid_len, struct snmp_node_instance *ins
     return SNMP_ERR_NOSUCHINSTANCE;
   }
 
+  /* 初始化当前线程同步代理实例的运行时数据结构 */
   memset(&call_data->proxy_instance, 0, sizeof(call_data->proxy_instance));
 
   instance->reference.ptr = call_data;
@@ -310,10 +329,10 @@ do_sync(const u32_t *root_oid, u8_t root_oid_len, struct snmp_node_instance *ins
   call_data->arg1.root_oid       = root_oid;
   call_data->arg2.root_oid_len   = root_oid_len;
 
-  /* 同步的执行指定的函数指针 */
+  /* 同步的执行指定的函数获取指定的代理实例对象并把实例对象数据存储到 call_data->proxy_instance 中 */
   call_synced_function(call_data, fn);
 
-  /* 根据指定的函数执行结果初始化指定的叶子节点实例数据结构 */
+  /* 根据同步获取到的代理实例对象数据初始化指定的叶子节点实例数据结构 */
   if (call_data->retval.err == SNMP_ERR_NOERROR) {
     instance->access           = call_data->proxy_instance.access;
     instance->asn1_type        = call_data->proxy_instance.asn1_type;
@@ -329,8 +348,8 @@ do_sync(const u32_t *root_oid, u8_t root_oid_len, struct snmp_node_instance *ins
 
 /*********************************************************************************************************
 ** 函数名称: snmp_threadsync_get_instance
-** 功能描述: 根据指定的函数参数同步的执行 get_instance_synced 函数并根据执行后的结果初始化
-**         : 指定的叶子节点实例
+** 功能描述: 根据指定的函数参数同步的执行 get_instance_synced 函数并把获取到的同步代理实例对象
+**         : 数据设置到指定的叶子节点实例
 ** 输	 入: root_oid - 需要代理的实例的根 oid 数据指针
 **         : root_oid_len - 需要代理的实例的根 oid 数据长度
 **         : instance - 需要初始化的叶子节点实例指针
@@ -346,8 +365,8 @@ snmp_threadsync_get_instance(const u32_t *root_oid, u8_t root_oid_len, struct sn
 
 /*********************************************************************************************************
 ** 函数名称: snmp_threadsync_get_instance
-** 功能描述: 根据指定的函数参数同步的执行 get_next_instance_synced 函数并根据执行后的结果初始化
-**         : 指定的叶子节点实例
+** 功能描述: 根据指定的函数参数同步的执行 get_next_instance_synced 函数并把获取到的同步代理实例对象
+**         : 数据设置到指定的叶子节点实例
 ** 输	 入: root_oid - 需要代理的实例的根 oid 数据指针
 **         : root_oid_len - 需要代理的实例的根 oid 数据长度
 **         : instance - 需要初始化的叶子节点实例指针
@@ -365,6 +384,12 @@ snmp_threadsync_get_next_instance(const u32_t *root_oid, u8_t root_oid_len, stru
 /*********************************************************************************************************
 ** 函数名称: snmp_threadsync_init
 ** 功能描述: 初始化指定的同步代理实例
+** 注     释: static void  sync_fn (snmp_threadsync_called_fn  pfunc, void*  pvArg)
+**         : {
+**         :     if (pfunc) {
+**         :         pfunc(pvArg);
+**         :     }
+**         : }
 ** 输	 入: instance - 需要初始化的同步代理实例指针
 **         : sync_fn - 指定的同步代理实例的同步函数
 ** 输	 出: 

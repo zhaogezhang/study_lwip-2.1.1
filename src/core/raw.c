@@ -63,6 +63,7 @@
 #include <string.h>
 
 /** The list of RAW PCBs */
+/* 当前协议栈会把系统内所有的原始套接字协议控制块通过这个链表头链接起来 */
 static struct raw_pcb *raw_pcbs;
 
 static u8_t

@@ -83,6 +83,7 @@ struct snmp_table_node
 snmp_err_t snmp_table_get_instance(const u32_t *root_oid, u8_t root_oid_len, struct snmp_node_instance* instance);
 snmp_err_t snmp_table_get_next_instance(const u32_t *root_oid, u8_t root_oid_len, struct snmp_node_instance* instance);
 
+/* 通过指定的参数创建一个 snmp 表格实例叶子节点数据结构 */
 #define SNMP_TABLE_CREATE(oid, columns, get_cell_instance_method, get_next_cell_instance_method, get_value_method, set_test_method, set_value_method) \
   {{{ SNMP_NODE_TABLE, (oid) }, \
   snmp_table_get_instance, \
@@ -131,6 +132,7 @@ struct snmp_table_simple_node
 snmp_err_t snmp_table_simple_get_instance(const u32_t *root_oid, u8_t root_oid_len, struct snmp_node_instance* instance);
 snmp_err_t snmp_table_simple_get_next_instance(const u32_t *root_oid, u8_t root_oid_len, struct snmp_node_instance* instance);
 
+/* 通过指定的参数创建一个 snmp 简单表格实例叶子节点数据结构 */
 #define SNMP_TABLE_CREATE_SIMPLE(oid, columns, get_cell_value_method, get_next_cell_instance_and_value_method) \
   {{{ SNMP_NODE_TABLE, (oid) }, \
   snmp_table_simple_get_instance, \

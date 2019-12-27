@@ -44,6 +44,7 @@ extern "C" {
 
 #if LWIP_SNMP && LWIP_SNMP_V3
 
+/* 当前协议栈 snmpv3 协议使用的认证算法类型 */
 typedef enum
 {
   SNMP_V3_AUTH_ALGO_INVAL = 0,
@@ -51,6 +52,7 @@ typedef enum
   SNMP_V3_AUTH_ALGO_SHA   = 2
 } snmpv3_auth_algo_t;
 
+/* 当前协议栈 snmpv3 协议使用的私有算法类型 */
 typedef enum
 {
   SNMP_V3_PRIV_ALGO_INVAL = 0,

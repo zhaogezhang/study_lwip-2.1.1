@@ -90,6 +90,7 @@ static err_t snmp_trap_varbind_enc(struct snmp_msg_trap *trap, struct snmp_pbuf_
 /** Agent community string for sending traps */
 extern const char *snmp_community_trap;
 
+/* 记录当前 snmp 协议模块使用的 udp 协议控制块指针 */
 void *snmp_traps_handle;
 
 struct snmp_trap_dst {

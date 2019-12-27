@@ -314,6 +314,7 @@ udp_Table_get_next_cell_instance_and_value(const u32_t *column, struct snmp_obj_
 
 #endif /* LWIP_IPV4 */
 
+/* 通过指定的参数创建只读属性的 snmp 标量实例叶子节点数据结构 */
 static const struct snmp_scalar_node udp_inDatagrams    = SNMP_SCALAR_CREATE_NODE_READONLY(1, SNMP_ASN1_TYPE_COUNTER,   udp_get_value);
 static const struct snmp_scalar_node udp_noPorts        = SNMP_SCALAR_CREATE_NODE_READONLY(2, SNMP_ASN1_TYPE_COUNTER,   udp_get_value);
 static const struct snmp_scalar_node udp_inErrors       = SNMP_SCALAR_CREATE_NODE_READONLY(3, SNMP_ASN1_TYPE_COUNTER,   udp_get_value);

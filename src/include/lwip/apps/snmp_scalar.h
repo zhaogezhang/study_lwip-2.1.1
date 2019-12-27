@@ -60,16 +60,17 @@ struct snmp_scalar_node
   node_instance_set_value_method set_value;
 };
 
-
 snmp_err_t snmp_scalar_get_instance(const u32_t *root_oid, u8_t root_oid_len, struct snmp_node_instance* instance);
 snmp_err_t snmp_scalar_get_next_instance(const u32_t *root_oid, u8_t root_oid_len, struct snmp_node_instance* instance);
 
+/* 通过指定的参数创建一个 snmp 标量实例叶子节点数据结构 */
 #define SNMP_SCALAR_CREATE_NODE(oid, access, asn1_type, get_value_method, set_test_method, set_value_method) \
   {{{ SNMP_NODE_SCALAR, (oid) }, \
     snmp_scalar_get_instance, \
     snmp_scalar_get_next_instance }, \
     (asn1_type), (access), (get_value_method), (set_test_method), (set_value_method) }
 
+/* 通过指定的参数创建一个只读属性的 snmp 标量实例叶子节点数据结构 */
 #define SNMP_SCALAR_CREATE_NODE_READONLY(oid, asn1_type, get_value_method) SNMP_SCALAR_CREATE_NODE(oid, SNMP_NODE_INSTANCE_READ_ONLY, asn1_type, get_value_method, NULL, NULL)
 
 /** scalar array node - a tree node which contains scalars only as children */
@@ -106,7 +107,7 @@ struct snmp_scalar_array_node
 snmp_err_t snmp_scalar_array_get_instance(const u32_t *root_oid, u8_t root_oid_len, struct snmp_node_instance* instance);
 snmp_err_t snmp_scalar_array_get_next_instance(const u32_t *root_oid, u8_t root_oid_len, struct snmp_node_instance* instance);
 
-/* 通过指定的参数初始化一个 snmp 标量数组实例数据结构 */
+/* 通过指定的参数创建一个 snmp 标量数组实例叶子节点数据结构 */
 #define SNMP_SCALAR_CREATE_ARRAY_NODE(oid, array_nodes, get_value_method, set_test_method, set_value_method) \
   {{{ SNMP_NODE_SCALAR_ARRAY, (oid) }, \
     snmp_scalar_array_get_instance, \
